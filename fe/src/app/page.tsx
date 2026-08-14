@@ -41,6 +41,26 @@ interface Stamp {
   isDefault: boolean;
 }
 
+interface HeaderLogo {
+  id: string;
+  image: string; // Base64
+  size: number; // percentage of header width
+  opacity: number; // 0-1
+  x: number; // horizontal position in %
+  y: number; // vertical position in %
+  isDefault: boolean;
+}
+
+interface ReportTheme {
+  primary: string;
+  primarySoft: string;
+  text: string;
+  muted: string;
+  border: string;
+  heading: string;
+  background: string;
+}
+
 interface ReportData {
   // Hospital Info
   hospitalName: string;
@@ -145,12 +165,17 @@ interface ReportData {
   // Custom Logo and Watermarks
   logoType: "text" | "image";
   logoImage: string; // Base64
+  logoTextColor: string;
+  logoTextSize: number;
+  logoTextWeight: number;
+  headerLogos: HeaderLogo[];
   watermarkEnabled: boolean;
   watermarkImage: string; // Base64
   watermarkOpacity: number;
   watermarkPages: number[]; // 1-indexed page list
   watermarkX: number; // horizontal position in %
   watermarkY: number; // vertical position in %
+  reportTheme: ReportTheme;
   findingsList: FindingItem[];
 
   // Discharge Summary Stamps
@@ -284,12 +309,25 @@ const defaultReportData: ReportData = {
   // Logo & Watermark settings
   logoType: "text",
   logoImage: "",
+  logoTextColor: "#0f172a",
+  logoTextSize: 24,
+  logoTextWeight: 800,
+  headerLogos: [],
   watermarkEnabled: true,
   watermarkImage: defaultWatermarkSvg,
   watermarkOpacity: 0.15,
   watermarkPages: [1, 2, 3], // Checked for page 1, 2 and 3 by default
   watermarkX: 50,
   watermarkY: 50,
+  reportTheme: {
+    primary: "#10b981",
+    primarySoft: "#d1fae5",
+    text: "#111827",
+    muted: "#4b5563",
+    border: "#d1d5db",
+    heading: "#111827",
+    background: "#ffffff",
+  },
 
   // Fitness Certificate Defaults
   fitTitle: "FIT TO TRAVEL CERTIFICATE",
@@ -409,7 +447,10 @@ export default function Home() {
   const page3Ref = useRef<HTMLDivElement>(null);
   const customPagesRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  const handleInputChange = (field: keyof ReportData, value: any) => {
+  const handleInputChange = <K extends keyof ReportData>(
+    field: K,
+    value: ReportData[K],
+  ) => {
     setData((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -469,6 +510,58 @@ export default function Home() {
     reader.onload = (event) => {
       if (event.target?.result) {
         handleInputChange(field, event.target.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleHeaderLogoChange = (
+    id: string,
+    key: "x" | "y" | "size" | "opacity",
+    value: number,
+  ) => {
+    const updated = data.headerLogos.map((logo) =>
+      logo.id === id ? { ...logo, [key]: value } : logo,
+    );
+    handleInputChange("headerLogos", updated);
+  };
+
+  const addHeaderLogo = () => {
+    handleInputChange("headerLogos", [
+      ...data.headerLogos,
+      {
+        id: `header_logo_${Date.now()}`,
+        image: "",
+        size: 100,
+        opacity: 0.8,
+        x: 50,
+        y: 50,
+        isDefault: false,
+      },
+    ]);
+  };
+
+  const removeHeaderLogo = (id: string) => {
+    const updated = data.headerLogos.filter((logo) => logo.id !== id);
+    handleInputChange("headerLogos", updated);
+  };
+
+  const handleHeaderLogoUpload = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    logoId: string,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        const updated = data.headerLogos.map((logo) =>
+          logo.id === logoId
+            ? { ...logo, image: event.target?.result as string }
+            : logo,
+        );
+        handleInputChange("headerLogos", updated);
       }
     };
     reader.readAsDataURL(file);
@@ -540,8 +633,169 @@ export default function Home() {
   };
 
   const handleReset = () => {
-    if (confirm("Reset all fields?")) {
+    if (confirm("Reset all fields to default?")) {
       setData(defaultReportData);
+    }
+  };
+
+  const clearHospitalFields = () => {
+    if (confirm("Clear all hospital information?")) {
+      setData({
+        ...data,
+        hospitalName: "",
+        hospitalSub: "",
+        hospitalAddress: "",
+        hospitalEmail: "",
+        hospitalPhone: "",
+        hospitalWebsite: "",
+        hospitalEmergency: "",
+        cin: "",
+        hospitalTagline: "",
+        dischargeFooterNote: "",
+        dischargeFooterBrand: "",
+        fitnessFooterText: "",
+        radiologyStampLabel: "",
+        radiologyStampSubtext: "",
+      });
+    }
+  };
+
+  const clearPatientFields = () => {
+    if (confirm("Clear all patient information?")) {
+      setData({
+        ...data,
+        patientName: "",
+        ageSex: "",
+        uhid: "",
+        refDoctor: "",
+        aadharCard: "",
+        address: "",
+        companyName: "",
+        ipNo: "",
+        orderDate: "",
+        reportDate: "",
+        facility: "",
+        dob: "",
+        mobile: "",
+        orderingBedWard: "",
+        currentBedWard: "",
+      });
+    }
+  };
+
+  const clearDiagnosticFields = () => {
+    if (confirm("Clear all diagnostic findings?")) {
+      setData({
+        ...data,
+        reportTitle: "",
+        clinicalProfile: "",
+        rightKidney: "",
+        leftKidney: "",
+        ureters: "",
+        urinaryBladder: "",
+        prostate: "",
+        impression: "",
+        suggestion: "",
+        reportSavedBy: "",
+        printDateTime: "",
+        printRunBy: "",
+      });
+    }
+  };
+
+  const clearFitnessFields = () => {
+    if (confirm("Clear all fitness certificate details?")) {
+      setData({
+        ...data,
+        fitTitle: "",
+        fitStatus: "fit",
+        fitStatement: "",
+        fitRemarks: "",
+        fitDate: "",
+        fitSignatory: "",
+      });
+    }
+  };
+
+  const clearDischargeDetailsFields = () => {
+    if (confirm("Clear all clinical details?")) {
+      setData({
+        ...data,
+        admitDate: "",
+        dischargeDateTime: "",
+        primaryConsultant: "",
+        crossConsultants: "",
+        finalDiagnosis: "",
+        dischargeResult: "",
+        natureOfTreatment: "",
+        reasonForAdmission: "",
+        hopi: "",
+        pastHistory: "",
+        familyHistory: "",
+        allergy: "",
+        pulse: "",
+        bp: "",
+        temp: "",
+        spo2: "",
+        respiration: "",
+        pallor: "",
+        cyanosis: "",
+        edema: "",
+      });
+    }
+  };
+
+  const clearDischargeTreatmentFields = () => {
+    if (confirm("Clear all treatment information?")) {
+      setData({
+        ...data,
+        treatmentGiven: [],
+        investigations: "",
+        courseDuringStay: "",
+        procedureDone: "",
+        urgentCareInfo: "",
+        specialNeeds: "",
+        dischargeFollowUp: "",
+        conditionOnDischarge: "",
+        dischargeFollowUpVisitDate: "",
+        preparedBy: "",
+        verifiedBy: "",
+        receivedBy: "",
+        receivedDate: "",
+        receivedTime: "",
+        customPages: [],
+      });
+    }
+  };
+
+  const clearDischargeMedicationsFields = () => {
+    if (confirm("Clear all medications?")) {
+      setData({
+        ...data,
+        medications: [],
+      });
+    }
+  };
+
+  const clearFooterFields = () => {
+    if (confirm("Clear logo, watermark, theme and stamps settings?")) {
+      setData({
+        ...data,
+        logoType: "text",
+        logoImage: "",
+        logoTextColor: defaultReportData.logoTextColor,
+        logoTextSize: defaultReportData.logoTextSize,
+        logoTextWeight: defaultReportData.logoTextWeight,
+        headerLogos: [],
+        watermarkEnabled: false,
+        watermarkImage: "",
+        watermarkOpacity: 0.3,
+        watermarkPages: [],
+        watermarkX: 50,
+        watermarkY: 50,
+        reportTheme: defaultReportData.reportTheme,
+        dischargeSummaryStamps: [],
+      });
     }
   };
 
@@ -557,7 +811,11 @@ export default function Home() {
     setShowPDFModal(false);
   };
 
-  const handleStampChange = (id: string, key: keyof Stamp, value: any) => {
+  const handleStampChange = <K extends keyof Stamp>(
+    id: string,
+    key: K,
+    value: Stamp[K],
+  ) => {
     const updated = data.dischargeSummaryStamps.map((stamp) => {
       if (stamp.id === id) {
         return { ...stamp, [key]: value };
@@ -608,6 +866,38 @@ export default function Home() {
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  const cloneElementForPDF = (element: HTMLDivElement): HTMLDivElement => {
+    const clone = element.cloneNode(true) as HTMLDivElement;
+
+    // Remove problematic Tailwind-generated styles
+    const styleSheets = document.styleSheets;
+    const newStyle = document.createElement("style");
+
+    let cssText = "";
+    try {
+      for (let i = 0; i < styleSheets.length; i++) {
+        try {
+          const sheet = styleSheets[i];
+          if (sheet.cssRules) {
+            for (let j = 0; j < sheet.cssRules.length; j++) {
+              const rule = sheet.cssRules[j];
+              // Skip rules with lab() or other unsupported color functions
+              if (rule.cssText && !rule.cssText.includes("lab(")) {
+                cssText += rule.cssText + "\n";
+              }
+            }
+          }
+        } catch (e) {
+          // Skip CORS errors from external stylesheets
+        }
+      }
+    } catch (e) {
+      // Fallback if stylesheet access fails
+    }
+
+    return clone;
   };
 
   const generatePDF = async () => {
@@ -689,6 +979,7 @@ export default function Home() {
               useCORS: true,
               logging: false,
               backgroundColor: "#ffffff",
+              allowTaint: true,
             });
 
             const imgData = canvas.toDataURL("image/png");
@@ -728,6 +1019,7 @@ export default function Home() {
               useCORS: true,
               logging: false,
               backgroundColor: "#ffffff",
+              allowTaint: true,
             });
 
             const imgData = canvas.toDataURL("image/png");
@@ -777,6 +1069,92 @@ export default function Home() {
         ? 1
         : 3 + data.customPages.length;
 
+  const renderHeaderBrand = (compact = false) => {
+    const textSize = compact
+      ? `${data.logoTextSize * 0.8}px`
+      : `${data.logoTextSize}px`;
+    const textWeight = data.logoTextWeight;
+
+    return (
+      <div
+        className="relative flex items-center justify-start min-w-0 w-full"
+        style={{ minHeight: compact ? "32px" : "44px" }}
+      >
+        {data.headerLogos.map(
+          (logo) =>
+            logo.image && (
+              <div
+                key={logo.id}
+                className="absolute pointer-events-none"
+                style={{
+                  left: `${logo.x}%`,
+                  top: `${logo.y}%`,
+                  width: `${Math.max(logo.size, 100)}%`,
+                  height: "100%",
+                  maxWidth: "none",
+                  maxHeight: "100%",
+                  opacity: logo.opacity,
+                  transform: "translate(-50%, -50%)",
+                  zIndex: 20,
+                }}
+              >
+                <img
+                  src={logo.image}
+                  alt="Extra header logo"
+                  className="w-full h-full object-contain"
+                />
+              </div>
+            ),
+        )}
+
+        {data.logoType === "image" && data.logoImage ? (
+          <img
+            src={data.logoImage}
+            alt="Hospital Logo"
+            className={
+              compact ? "max-h-10 object-contain" : "max-h-12 object-contain"
+            }
+          />
+        ) : (
+          <div className="flex items-center min-w-0">
+            <span
+              style={{
+                color: data.logoTextColor,
+                fontSize: textSize,
+                fontWeight: textWeight,
+                lineHeight: 1,
+              }}
+            >
+              {data.hospitalName.split(" ")[0] || "Orchid"}
+            </span>
+            <span
+              className="ml-1 block leading-tight border-l pl-2"
+              style={{
+                color: data.reportTheme.muted,
+                borderColor: data.reportTheme.border,
+                fontSize: compact ? "12px" : "16px",
+                fontWeight: 400,
+              }}
+            >
+              {data.hospitalName.split(" ").slice(1).join(" ") ||
+                "Medical Centre"}
+              <span
+                className="block uppercase tracking-widest font-bold"
+                style={{
+                  color: data.reportTheme.muted,
+                  fontSize: compact ? "7px" : "8px",
+                  letterSpacing: "0.14em",
+                }}
+              >
+                {data.hospitalTagline}
+              </span>
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderLogoWatermarkSettings = () => (
     <>
       {/* Logo Section */}
@@ -814,19 +1192,67 @@ export default function Home() {
         </div>
 
         {data.logoType === "text" && (
-          <div className="space-y-2">
-            <label className="block text-[10px] text-slate-500 font-semibold">
-              Hospital Name (Text Logo)
-            </label>
-            <input
-              type="text"
-              value={data.hospitalName}
-              onChange={(e) =>
-                handleInputChange("hospitalName", e.target.value)
-              }
-              className="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
-              placeholder="e.g. Orchid Medical Centre"
-            />
+          <div className="space-y-3">
+            <div>
+              <label className="block text-[10px] text-slate-500 font-semibold">
+                Hospital Name (Text Logo)
+              </label>
+              <input
+                type="text"
+                value={data.hospitalName}
+                onChange={(e) =>
+                  handleInputChange("hospitalName", e.target.value)
+                }
+                className="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                placeholder="e.g. Orchid Medical Centre"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] text-slate-500 font-semibold mb-1">
+                  Text Color
+                </label>
+                <input
+                  type="color"
+                  value={data.logoTextColor}
+                  onChange={(e) =>
+                    handleInputChange("logoTextColor", e.target.value)
+                  }
+                  className="w-full h-9 rounded border border-slate-700 bg-slate-900"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500 font-semibold mb-1">
+                  Text Size ({data.logoTextSize}px)
+                </label>
+                <input
+                  type="range"
+                  min="14"
+                  max="40"
+                  value={data.logoTextSize}
+                  onChange={(e) =>
+                    handleInputChange("logoTextSize", Number(e.target.value))
+                  }
+                  className="w-full accent-emerald-500"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">
+                Font Weight ({data.logoTextWeight})
+              </label>
+              <input
+                type="range"
+                min="400"
+                max="900"
+                step="100"
+                value={data.logoTextWeight}
+                onChange={(e) =>
+                  handleInputChange("logoTextWeight", Number(e.target.value))
+                }
+                className="w-full accent-emerald-500"
+              />
+            </div>
           </div>
         )}
 
@@ -852,6 +1278,179 @@ export default function Home() {
             )}
           </div>
         )}
+
+        <div className="space-y-3 pt-2 border-t border-slate-800">
+          <div className="flex items-center justify-between">
+            <h5 className="text-[10px] font-bold uppercase tracking-wider text-slate-300">
+              Extra Header Logos
+            </h5>
+            <button
+              type="button"
+              onClick={addHeaderLogo}
+              className="bg-emerald-500 text-slate-950 px-2.5 py-1 rounded text-[10px] font-bold"
+            >
+              + Add Logo
+            </button>
+          </div>
+
+          {data.headerLogos.map((logo) => (
+            <div
+              key={logo.id}
+              className="bg-slate-900 border border-slate-800 rounded p-3 space-y-3"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-semibold text-slate-300">
+                  Logo {data.headerLogos.indexOf(logo) + 1}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeHeaderLogo(logo.id)}
+                  className="text-red-400 text-[10px] font-semibold"
+                >
+                  Remove
+                </button>
+              </div>
+
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => handleHeaderLogoUpload(e, logo.id)}
+                className="w-full text-[10px] text-slate-400 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[10px] file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700"
+              />
+
+              {logo.image && (
+                <div className="bg-white rounded p-2 flex justify-center max-h-12 overflow-hidden">
+                  <img
+                    src={logo.image}
+                    alt="Header logo preview"
+                    className="object-contain max-h-10"
+                  />
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-300">
+                <div className="col-span-2">
+                  <label>Width / Size ({logo.size}%)</label>
+                  <input
+                    type="range"
+                    min="1"
+                    max="150"
+                    value={logo.size}
+                    onChange={(e) =>
+                      handleHeaderLogoChange(
+                        logo.id,
+                        "size",
+                        Number(e.target.value),
+                      )
+                    }
+                    className="w-full accent-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label>Opacity ({Math.round(logo.opacity * 100)}%)</label>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1"
+                    step="0.05"
+                    value={logo.opacity}
+                    onChange={(e) =>
+                      handleHeaderLogoChange(
+                        logo.id,
+                        "opacity",
+                        Number(e.target.value),
+                      )
+                    }
+                    className="w-full accent-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label>X Axis ({logo.x}%)</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={logo.x}
+                    onChange={(e) =>
+                      handleHeaderLogoChange(
+                        logo.id,
+                        "x",
+                        Number(e.target.value),
+                      )
+                    }
+                    className="w-full accent-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label>Y Axis ({logo.y}%)</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={logo.y}
+                    onChange={(e) =>
+                      handleHeaderLogoChange(
+                        logo.id,
+                        "y",
+                        Number(e.target.value),
+                      )
+                    }
+                    className="w-full accent-emerald-500"
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-slate-950 p-4 rounded-xl border border-slate-850 space-y-4">
+        <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+          Report Theme
+        </h4>
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            { key: "primary", label: "Primary Accent" },
+            { key: "primarySoft", label: "Soft Accent" },
+            { key: "text", label: "Text" },
+            { key: "muted", label: "Muted" },
+            { key: "border", label: "Border" },
+            { key: "heading", label: "Heading" },
+          ].map((colorField) => (
+            <div key={colorField.key}>
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">
+                {colorField.label}
+              </label>
+              <input
+                type="color"
+                value={data.reportTheme[colorField.key as keyof ReportTheme]}
+                onChange={(e) =>
+                  handleInputChange("reportTheme", {
+                    ...data.reportTheme,
+                    [colorField.key]: e.target.value,
+                  })
+                }
+                className="w-full h-9 rounded border border-slate-700 bg-slate-900"
+              />
+            </div>
+          ))}
+        </div>
+        <div>
+          <label className="block text-[10px] text-slate-500 font-semibold mb-1">
+            Page Background
+          </label>
+          <input
+            type="color"
+            value={data.reportTheme.background}
+            onChange={(e) =>
+              handleInputChange("reportTheme", {
+                ...data.reportTheme,
+                background: e.target.value,
+              })
+            }
+            className="w-full h-9 rounded border border-slate-700 bg-slate-900"
+          />
+        </div>
       </div>
 
       {/* Watermark Section */}
@@ -1180,11 +1779,11 @@ export default function Home() {
       <header className="border-b border-slate-800 bg-slate-950 px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
         <div className="flex items-center space-x-3">
           <div className="bg-emerald-500 text-slate-950 p-2.5 rounded-xl font-black text-2xl shadow-lg shadow-emerald-500/20">
-            O
+            HMS
           </div>
           <div>
             <h1 className="font-bold text-lg leading-tight flex items-center gap-2">
-              Orchid Medical Workspace
+              HMS
               <span className="bg-slate-800 text-emerald-400 text-xs px-2 py-0.5 rounded-full font-normal">
                 Active
               </span>
@@ -1364,10 +1963,18 @@ export default function Home() {
             {activeTab === "hospital" && (
               <div className="space-y-6">
                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-850 space-y-4">
-                  <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <Building2 className="w-4 h-4" />
-                    Hospital Information
-                  </h4>
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <Building2 className="w-4 h-4" />
+                      Hospital Information
+                    </h4>
+                    <button
+                      onClick={clearHospitalFields}
+                      className="text-[10px] font-semibold px-2 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded border border-red-500/50"
+                    >
+                      Clear
+                    </button>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-semibold text-slate-400 mb-1">
@@ -2414,30 +3021,20 @@ export default function Home() {
 
                 <div className="relative z-10">
                   {/* Header */}
-                  <div className="flex justify-between items-start border-b border-gray-300 pb-3 mb-5">
-                    <div className="text-3xl font-extrabold tracking-tight text-gray-800 flex items-center">
-                      {data.logoType === "image" && data.logoImage ? (
-                        <img
-                          src={data.logoImage}
-                          alt="Hospital Logo"
-                          className="max-h-12 object-contain"
-                        />
-                      ) : (
-                        <>
-                          <span className="text-gray-900">
-                            {data.hospitalName.split(" ")[0] || "Orchid"}
-                          </span>
-                          <span className="text-gray-600 ml-1 text-base font-normal block leading-tight border-l border-gray-400 pl-2">
-                            {data.hospitalName.split(" ").slice(1).join(" ") ||
-                              "Medical Centre"}
-                            <span className="block text-[8px] text-gray-400 uppercase tracking-widest font-bold font-sans">
-                              {data.hospitalTagline}
-                            </span>
-                          </span>
-                        </>
-                      )}
+                  <div
+                    className="flex justify-between items-start border-b pb-3 mb-5"
+                    style={{ borderColor: data.reportTheme.border }}
+                  >
+                    <div
+                      className="relative flex items-center min-w-0 flex-1"
+                      style={{ color: data.reportTheme.text }}
+                    >
+                      {renderHeaderBrand(false)}
                     </div>
-                    <div className="text-[9px] text-right text-gray-600 space-y-0.5">
+                    <div
+                      className="text-[9px] text-right space-y-0.5"
+                      style={{ color: data.reportTheme.muted }}
+                    >
                       <p className="font-bold text-gray-800">
                         {data.hospitalSub}
                       </p>
@@ -2613,30 +3210,20 @@ export default function Home() {
 
                 <div className="relative z-10">
                   {/* Header */}
-                  <div className="flex justify-between items-start border-b border-gray-300 pb-3 mb-4">
-                    <div className="text-3xl font-extrabold tracking-tight text-gray-800 flex items-center">
-                      {data.logoType === "image" && data.logoImage ? (
-                        <img
-                          src={data.logoImage}
-                          alt="Hospital Logo"
-                          className="max-h-12 object-contain"
-                        />
-                      ) : (
-                        <>
-                          <span className="text-gray-900">
-                            {data.hospitalName.split(" ")[0] || "Orchid"}
-                          </span>
-                          <span className="text-gray-600 ml-1 text-base font-normal block leading-tight border-l border-gray-400 pl-2">
-                            {data.hospitalName.split(" ").slice(1).join(" ") ||
-                              "Medical Centre"}
-                            <span className="block text-[8px] text-gray-400 uppercase tracking-widest font-bold font-sans">
-                              {data.hospitalTagline}
-                            </span>
-                          </span>
-                        </>
-                      )}
+                  <div
+                    className="flex justify-between items-start border-b pb-3 mb-4"
+                    style={{ borderColor: data.reportTheme.border }}
+                  >
+                    <div
+                      className="relative flex items-center min-w-0 flex-1"
+                      style={{ color: data.reportTheme.text }}
+                    >
+                      {renderHeaderBrand(false)}
                     </div>
-                    <div className="text-[9px] text-right text-gray-600 space-y-0.5">
+                    <div
+                      className="text-[9px] text-right space-y-0.5"
+                      style={{ color: data.reportTheme.muted }}
+                    >
                       <p className="font-bold text-gray-800">
                         {data.hospitalSub}
                       </p>
@@ -2917,28 +3504,24 @@ export default function Home() {
 
                   <div className="relative z-10">
                     {/* Header */}
-                    <div className="flex justify-between items-start border-b border-gray-300 pb-2 mb-3">
-                      <div className="text-2xl font-black text-gray-800 flex items-center">
-                        {data.logoType === "image" && data.logoImage ? (
-                          <img
-                            src={data.logoImage}
-                            alt="Hospital Logo"
-                            className="max-h-10 object-contain"
-                          />
-                        ) : (
-                          <>
-                            <span>{data.hospitalName.split(" ")[0]}</span>
-                            <span className="text-gray-600 ml-1 text-sm font-normal border-l border-gray-400 pl-2 block">
-                              {data.hospitalName.split(" ").slice(1).join(" ")}
-                              <span className="block text-[7px] text-gray-400 uppercase tracking-widest font-bold">
-                                {data.hospitalTagline}
-                              </span>
-                            </span>
-                          </>
-                        )}
+                    <div
+                      className="flex justify-between items-start border-b pb-2 mb-3"
+                      style={{ borderColor: data.reportTheme.border }}
+                    >
+                      <div
+                        className="relative flex items-center min-w-0 flex-1"
+                        style={{ color: data.reportTheme.text }}
+                      >
+                        {renderHeaderBrand(true)}
                       </div>
-                      <div className="text-[8px] text-right text-gray-600 leading-tight">
-                        <p className="font-bold text-gray-700">
+                      <div
+                        className="text-[8px] text-right leading-tight"
+                        style={{ color: data.reportTheme.muted }}
+                      >
+                        <p
+                          className="font-bold"
+                          style={{ color: data.reportTheme.heading }}
+                        >
                           {data.hospitalSub}
                         </p>
                         <p>{data.hospitalAddress}</p>
