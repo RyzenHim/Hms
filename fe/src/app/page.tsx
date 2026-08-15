@@ -868,34 +868,54 @@ export default function Home() {
     reader.readAsDataURL(file);
   };
 
+  // const cloneElementForPDF = (element: HTMLDivElement): HTMLDivElement => {
+  //   const clone = element.cloneNode(true) as HTMLDivElement;
+
+  //   // Remove problematic Tailwind-generated styles
+  //   const styleSheets = document.styleSheets;
+  //   const newStyle = document.createElement("style");
+
+  //   let cssText = "";
+  //   try {
+  //     for (let i = 0; i < styleSheets.length; i++) {
+  //       try {
+  //         const sheet = styleSheets[i];
+  //         if (sheet.cssRules) {
+  //           for (let j = 0; j < sheet.cssRules.length; j++) {
+  //             const rule = sheet.cssRules[j];
+  //             // Skip rules with lab() or other unsupported color functions
+  //             if (rule.cssText && !rule.cssText.includes("lab(")) {
+  //               cssText += rule.cssText + "\n";
+  //             }
+  //           }
+  //         }
+  //       } catch (e) {
+  //         // Skip CORS errors from external stylesheets
+  //       }
+  //     }
+  //   } catch (e) {
+  //     // Fallback if stylesheet access fails
+  //   }
+
+  //   return clone;
+  // };
+
   const cloneElementForPDF = (element: HTMLDivElement): HTMLDivElement => {
     const clone = element.cloneNode(true) as HTMLDivElement;
 
-    // Remove problematic Tailwind-generated styles
-    const styleSheets = document.styleSheets;
-    const newStyle = document.createElement("style");
+    clone.style.position = "absolute";
+    clone.style.left = "-99999px";
+    clone.style.top = "0";
+    clone.style.width = `${element.offsetWidth}px`;
+    clone.style.height = `${element.offsetHeight}px`;
 
-    let cssText = "";
-    try {
-      for (let i = 0; i < styleSheets.length; i++) {
-        try {
-          const sheet = styleSheets[i];
-          if (sheet.cssRules) {
-            for (let j = 0; j < sheet.cssRules.length; j++) {
-              const rule = sheet.cssRules[j];
-              // Skip rules with lab() or other unsupported color functions
-              if (rule.cssText && !rule.cssText.includes("lab(")) {
-                cssText += rule.cssText + "\n";
-              }
-            }
-          }
-        } catch (e) {
-          // Skip CORS errors from external stylesheets
-        }
-      }
-    } catch (e) {
-      // Fallback if stylesheet access fails
-    }
+    document.body.appendChild(clone);
+
+    // Remove stylesheets from the clone because html2canvas
+    // can fail parsing unsupported CSS color functions such as lab().
+    clone.querySelectorAll("style").forEach((style) => {
+      style.remove();
+    });
 
     return clone;
   };
@@ -904,7 +924,7 @@ export default function Home() {
     closePDFModal();
     setIsGenerating(true);
     try {
-      const html2canvas = (await import("html2canvas")).default;
+      const html2canvas = (await import("html2canvas-pro")).default;
       const { jsPDF } = await import("jspdf");
 
       const pagesToRender: {
