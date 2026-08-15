@@ -170,11 +170,25 @@ interface ReportData {
   logoTextWeight: number;
   headerLogos: HeaderLogo[];
   watermarkEnabled: boolean;
+  watermarkImageEnabled: boolean;
   watermarkImage: string; // Base64
   watermarkOpacity: number;
   watermarkPages: number[]; // 1-indexed page list
   watermarkX: number; // horizontal position in %
   watermarkY: number; // vertical position in %
+  watermarkText: string;
+  watermarkTextColor: string;
+  watermarkTextSize: number;
+  watermarkTextWeight: number;
+  watermarkTextOpacity: number;
+  watermarkTextRotation: number;
+  watermarkTextSkewX: number;
+  watermarkTextSkewY: number;
+  watermarkTextX: number;
+  watermarkTextY: number;
+  watermarkTextLetterSpacing: number;
+  watermarkTextStyle: "normal" | "italic";
+  watermarkTextTransform: "none" | "uppercase" | "lowercase";
   reportTheme: ReportTheme;
   findingsList: FindingItem[];
 
@@ -314,11 +328,25 @@ const defaultReportData: ReportData = {
   logoTextWeight: 800,
   headerLogos: [],
   watermarkEnabled: true,
+  watermarkImageEnabled: true,
   watermarkImage: defaultWatermarkSvg,
   watermarkOpacity: 0.15,
   watermarkPages: [1, 2, 3], // Checked for page 1, 2 and 3 by default
   watermarkX: 50,
   watermarkY: 50,
+  watermarkText: "",
+  watermarkTextColor: "#64748b",
+  watermarkTextSize: 64,
+  watermarkTextWeight: 700,
+  watermarkTextOpacity: 0.15,
+  watermarkTextRotation: -35,
+  watermarkTextSkewX: 0,
+  watermarkTextSkewY: 0,
+  watermarkTextX: 50,
+  watermarkTextY: 50,
+  watermarkTextLetterSpacing: 2,
+  watermarkTextStyle: "normal",
+  watermarkTextTransform: "uppercase",
   reportTheme: {
     primary: "#10b981",
     primarySoft: "#d1fae5",
@@ -392,16 +420,20 @@ const defaultReportData: ReportData = {
   ],
 };
 
-// Helper function to calculate age from DOB (format: DD/MM/YYYY)
-const calculateAge = (dobString: string): number => {
-  if (!dobString) return 0;
+// Helper function to calculate age at the admit date (format: DD/MM/YYYY)
+const calculateAge = (dobString: string, admitDateString: string): number => {
+  if (!dobString || !admitDateString) return 0;
   try {
     const [day, month, year] = dobString.split("/").map(Number);
     const dob = new Date(year, month - 1, day);
-    const today = new Date();
-    let age = today.getFullYear() - dob.getFullYear();
-    const monthDiff = today.getMonth() - dob.getMonth();
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < day)) {
+    const [admitDay, admitMonth, admitYear] = admitDateString
+      .split(" ")[0]
+      .split("/")
+      .map(Number);
+    const admitDate = new Date(admitYear, admitMonth - 1, admitDay);
+    let age = admitDate.getFullYear() - dob.getFullYear();
+    const monthDiff = admitDate.getMonth() - dob.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && admitDate.getDate() < day)) {
       age--;
     }
     return age;
@@ -788,11 +820,25 @@ export default function Home() {
         logoTextWeight: defaultReportData.logoTextWeight,
         headerLogos: [],
         watermarkEnabled: false,
+        watermarkImageEnabled: false,
         watermarkImage: "",
         watermarkOpacity: 0.3,
         watermarkPages: [],
         watermarkX: 50,
         watermarkY: 50,
+        watermarkText: "",
+        watermarkTextColor: defaultReportData.watermarkTextColor,
+        watermarkTextSize: defaultReportData.watermarkTextSize,
+        watermarkTextWeight: defaultReportData.watermarkTextWeight,
+        watermarkTextOpacity: defaultReportData.watermarkTextOpacity,
+        watermarkTextRotation: defaultReportData.watermarkTextRotation,
+        watermarkTextSkewX: defaultReportData.watermarkTextSkewX,
+        watermarkTextSkewY: defaultReportData.watermarkTextSkewY,
+        watermarkTextX: 50,
+        watermarkTextY: 50,
+        watermarkTextLetterSpacing: defaultReportData.watermarkTextLetterSpacing,
+        watermarkTextStyle: defaultReportData.watermarkTextStyle,
+        watermarkTextTransform: defaultReportData.watermarkTextTransform,
         reportTheme: defaultReportData.reportTheme,
         dischargeSummaryStamps: [],
       });
@@ -1175,6 +1221,60 @@ export default function Home() {
     );
   };
 
+  const renderWatermark = (pageNumber: number) => {
+    if (!data.watermarkEnabled || !data.watermarkPages.includes(pageNumber)) {
+      return null;
+    }
+
+    return (
+      <>
+        {data.watermarkImageEnabled && data.watermarkImage && (
+          <div
+            className="absolute pointer-events-none z-0"
+            style={{
+              opacity: data.watermarkOpacity,
+              left: `${data.watermarkX}%`,
+              top: `${data.watermarkY}%`,
+              transform: "translate(-50%, -50%)",
+              width: "70%",
+              maxWidth: "450px",
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <img
+              src={data.watermarkImage}
+              alt="watermark"
+              className="w-full h-full object-contain select-none"
+            />
+          </div>
+        )}
+        {data.watermarkText && (
+          <div
+            className="absolute pointer-events-none z-0 select-none whitespace-pre-wrap text-center"
+            style={{
+              left: `${data.watermarkTextX}%`,
+              top: `${data.watermarkTextY}%`,
+              transform: `translate(-50%, -50%) rotate(${data.watermarkTextRotation}deg) skew(${data.watermarkTextSkewX}deg, ${data.watermarkTextSkewY}deg)`,
+              color: data.watermarkTextColor,
+              fontSize: `${data.watermarkTextSize}px`,
+              fontWeight: data.watermarkTextWeight,
+              fontStyle: data.watermarkTextStyle,
+              letterSpacing: `${data.watermarkTextLetterSpacing}px`,
+              textTransform: data.watermarkTextTransform,
+              opacity: data.watermarkTextOpacity,
+              lineHeight: 1.1,
+              maxWidth: "90%",
+            }}
+          >
+            {data.watermarkText}
+          </div>
+        )}
+      </>
+    );
+  };
+
   const renderLogoWatermarkSettings = () => (
     <>
       {/* Logo Section */}
@@ -1493,16 +1593,129 @@ export default function Home() {
 
         {data.watermarkEnabled && (
           <div className="space-y-4">
-            <div>
-              <label className="block text-[11px] text-slate-400 mb-1 font-semibold">
-                Upload Watermark Image
-              </label>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-[11px] text-slate-400 font-semibold">
+                  Image Watermark (optional)
+                </label>
+                <button
+                  onClick={() =>
+                    handleInputChange(
+                      "watermarkImageEnabled",
+                      !data.watermarkImageEnabled,
+                    )
+                  }
+                  className={`px-2 py-1 rounded text-[10px] font-bold ${
+                    data.watermarkImageEnabled
+                      ? "bg-emerald-500 text-slate-950"
+                      : "bg-slate-800 text-slate-400"
+                  }`}
+                >
+                  {data.watermarkImageEnabled ? "IMAGE ON" : "IMAGE OFF"}
+                </button>
+              </div>
               <input
                 type="file"
                 accept="image/*"
                 onChange={(e) => handleImageUpload(e, "watermarkImage")}
                 className="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700"
               />
+            </div>
+
+            <div className="border-t border-slate-800 pt-4 space-y-3">
+              <label className="block text-[11px] text-emerald-400 font-semibold">
+                Text Watermark (optional — works with or without an image)
+              </label>
+              <textarea
+                value={data.watermarkText}
+                onChange={(e) => handleInputChange("watermarkText", e.target.value)}
+                placeholder="e.g. CONFIDENTIAL"
+                rows={2}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500 resize-none"
+              />
+
+              {data.watermarkText && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Text Color</label>
+                      <input
+                        type="color"
+                        value={data.watermarkTextColor}
+                        onChange={(e) => handleInputChange("watermarkTextColor", e.target.value)}
+                        className="w-full h-9 rounded border border-slate-700 bg-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Style</label>
+                      <select
+                        value={data.watermarkTextStyle}
+                        onChange={(e) => handleInputChange("watermarkTextStyle", e.target.value as ReportData["watermarkTextStyle"])}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100"
+                      >
+                        <option value="normal">Normal</option>
+                        <option value="italic">Italic</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Case</label>
+                      <select
+                        value={data.watermarkTextTransform}
+                        onChange={(e) => handleInputChange("watermarkTextTransform", e.target.value as ReportData["watermarkTextTransform"])}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100"
+                      >
+                        <option value="uppercase">UPPERCASE</option>
+                        <option value="normal">As typed</option>
+                        <option value="lowercase">lowercase</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Weight ({data.watermarkTextWeight})</label>
+                      <input type="range" min="100" max="900" step="100" value={data.watermarkTextWeight} onChange={(e) => handleInputChange("watermarkTextWeight", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Size ({data.watermarkTextSize}px)</label>
+                      <input type="range" min="12" max="160" value={data.watermarkTextSize} onChange={(e) => handleInputChange("watermarkTextSize", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Opacity ({Math.round(data.watermarkTextOpacity * 100)}%)</label>
+                      <input type="range" min="0.05" max="1" step="0.01" value={data.watermarkTextOpacity} onChange={(e) => handleInputChange("watermarkTextOpacity", parseFloat(e.target.value))} className="w-full accent-emerald-500" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Text X-Axis ({data.watermarkTextX}%)</label>
+                      <input type="range" min="0" max="100" value={data.watermarkTextX} onChange={(e) => handleInputChange("watermarkTextX", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Text Y-Axis ({data.watermarkTextY}%)</label>
+                      <input type="range" min="0" max="100" value={data.watermarkTextY} onChange={(e) => handleInputChange("watermarkTextY", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Rotate ({data.watermarkTextRotation}°)</label>
+                      <input type="range" min="-180" max="180" value={data.watermarkTextRotation} onChange={(e) => handleInputChange("watermarkTextRotation", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Skew X ({data.watermarkTextSkewX}°)</label>
+                      <input type="range" min="-45" max="45" value={data.watermarkTextSkewX} onChange={(e) => handleInputChange("watermarkTextSkewX", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Skew Y ({data.watermarkTextSkewY}°)</label>
+                      <input type="range" min="-45" max="45" value={data.watermarkTextSkewY} onChange={(e) => handleInputChange("watermarkTextSkewY", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Letter Spacing ({data.watermarkTextLetterSpacing}px)</label>
+                    <input type="range" min="-2" max="20" value={data.watermarkTextLetterSpacing} onChange={(e) => handleInputChange("watermarkTextLetterSpacing", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                  </div>
+                </div>
+              )}
             </div>
 
             <div>
@@ -2242,7 +2455,7 @@ export default function Home() {
                       Age / Sex (Auto-calculated)
                     </label>
                     <div className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-emerald-400 font-semibold flex items-center">
-                      {calculateAge(data.dob)} Year(s) /{" "}
+                      {calculateAge(data.dob, data.admitDate)} Year(s) /{" "}
                       {data.ageSex.split("/")[1]?.trim() || "Male"}
                     </div>
                   </div>
@@ -2255,7 +2468,7 @@ export default function Home() {
                       onChange={(e) =>
                         handleInputChange(
                           "ageSex",
-                          `${calculateAge(data.dob)} Year(s)/${e.target.value}`,
+                          `${calculateAge(data.dob, data.admitDate)} Year(s)/${e.target.value}`,
                         )
                       }
                       className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
@@ -3013,31 +3226,7 @@ export default function Home() {
                   lineHeight: "1.5",
                 }}
               >
-                {/* Optional Watermark Overlay */}
-                {data.watermarkEnabled &&
-                  data.watermarkPages.includes(1) &&
-                  data.watermarkImage && (
-                    <div
-                      className="absolute pointer-events-none z-0"
-                      style={{
-                        opacity: data.watermarkOpacity,
-                        left: `${data.watermarkX}%`,
-                        top: `${data.watermarkY}%`,
-                        transform: "translate(-50%, -50%)",
-                        width: "70%",
-                        maxWidth: "450px",
-                        display: "flex",
-                        justifyContent: "center",
-                        alignItems: "center",
-                      }}
-                    >
-                      <img
-                        src={data.watermarkImage}
-                        alt="watermark"
-                        className="w-full h-full object-contain select-none"
-                      />
-                    </div>
-                  )}
+                {renderWatermark(1)}
 
                 <div className="relative z-10">
                   {/* Header */}
@@ -3059,10 +3248,14 @@ export default function Home() {
                         {data.hospitalSub}
                       </p>
                       <p>{data.hospitalAddress}</p>
-                      <p>CIN : {data.cin}</p>
-                      <p>
-                        E: {data.hospitalEmail} | T: {data.hospitalPhone}
-                      </p>
+                      {data.cin && <p>CIN : {data.cin}</p>}
+                      {(data.hospitalEmail || data.hospitalPhone) && (
+                        <p>
+                          {data.hospitalEmail && `E: ${data.hospitalEmail}`}
+                          {data.hospitalEmail && data.hospitalPhone && " | "}
+                          {data.hospitalPhone && `T: ${data.hospitalPhone}`}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -3104,7 +3297,7 @@ export default function Home() {
                         Age / Sex:
                       </span>{" "}
                       <span className="font-bold text-gray-900">
-                        {calculateAge(data.dob)} Year(s) /{" "}
+                        {calculateAge(data.dob, data.admitDate)} Year(s) /{" "}
                         {data.ageSex.split("/")[1]?.trim() || "Male"}
                       </span>
                     </div>
@@ -3132,7 +3325,7 @@ export default function Home() {
                       This is to certify that I have conducted a clinical
                       examination and medical evaluation of
                       <strong> {data.patientName}</strong>, aged{" "}
-                      <strong>{calculateAge(data.dob)} Year(s)</strong>, who has
+                      <strong>{calculateAge(data.dob, data.admitDate)} Year(s)</strong>, who has
                       been registered under UHID
                       <strong> {data.uhid}</strong>.
                     </p>
@@ -3202,31 +3395,7 @@ export default function Home() {
                   lineHeight: "1.4",
                 }}
               >
-                {/* Optional Watermark Overlay */}
-                {data.watermarkEnabled &&
-                  data.watermarkPages.includes(1) &&
-                  data.watermarkImage && (
-                    <div
-                      className="absolute pointer-events-none z-0"
-                      style={{
-                        opacity: data.watermarkOpacity,
-                        left: `${data.watermarkX}%`,
-                        top: `${data.watermarkY}%`,
-                        transform: "translate(-50%, -50%)",
-                        width: "70%",
-                        maxWidth: "450px",
-                        display: "flex",
-                        justifyContent: "center",
-                        alignItems: "center",
-                      }}
-                    >
-                      <img
-                        src={data.watermarkImage}
-                        alt="watermark"
-                        className="w-full h-full object-contain select-none"
-                      />
-                    </div>
-                  )}
+                {renderWatermark(1)}
 
                 <div className="relative z-10">
                   {/* Header */}
@@ -3248,11 +3417,17 @@ export default function Home() {
                         {data.hospitalSub}
                       </p>
                       <p>{data.hospitalAddress}</p>
-                      <p>CIN : {data.cin}</p>
-                      <p>
-                        E: {data.hospitalEmail} | T: {data.hospitalPhone}
-                      </p>
-                      <p>W: {data.hospitalWebsite}</p>
+                      {data.cin && <p>CIN : {data.cin}</p>}
+                      {(data.hospitalEmail || data.hospitalPhone) && (
+                        <p>
+                          {data.hospitalEmail && `E: ${data.hospitalEmail}`}
+                          {data.hospitalEmail && data.hospitalPhone && " | "}
+                          {data.hospitalPhone && `T: ${data.hospitalPhone}`}
+                        </p>
+                      )}
+                      {data.hospitalWebsite && (
+                        <p>W: {data.hospitalWebsite}</p>
+                      )}
                     </div>
                   </div>
 
@@ -3285,7 +3460,7 @@ export default function Home() {
                         Age/Sex
                       </span>
                       <span className="col-span-2 font-bold">
-                        : {calculateAge(data.dob)} Year(s) /{" "}
+                        : {calculateAge(data.dob, data.admitDate)} Year(s) /{" "}
                         {data.ageSex.split("/")[1]?.trim() || "Male"}
                       </span>
                     </div>
@@ -3464,31 +3639,7 @@ export default function Home() {
                     lineHeight: "1.35",
                   }}
                 >
-                  {/* Watermark */}
-                  {data.watermarkEnabled &&
-                    data.watermarkPages.includes(1) &&
-                    data.watermarkImage && (
-                      <div
-                        className="absolute pointer-events-none z-0"
-                        style={{
-                          opacity: data.watermarkOpacity,
-                          left: `${data.watermarkX}%`,
-                          top: `${data.watermarkY}%`,
-                          transform: "translate(-50%, -50%)",
-                          width: "70%",
-                          maxWidth: "450px",
-                          display: "flex",
-                          justifyContent: "center",
-                          alignItems: "center",
-                        }}
-                      >
-                        <img
-                          src={data.watermarkImage}
-                          alt="watermark"
-                          className="w-full h-full object-contain select-none"
-                        />
-                      </div>
-                    )}
+                  {renderWatermark(1)}
 
                   {/* Discharge Summary Stamps - Page 1 */}
                   {data.dischargeSummaryStamps.map(
@@ -3545,9 +3696,13 @@ export default function Home() {
                           {data.hospitalSub}
                         </p>
                         <p>{data.hospitalAddress}</p>
-                        <p>
-                          E: {data.hospitalEmail} | T: {data.hospitalPhone}
-                        </p>
+                        {(data.hospitalEmail || data.hospitalPhone) && (
+                          <p>
+                            {data.hospitalEmail && `E: ${data.hospitalEmail}`}
+                            {data.hospitalEmail && data.hospitalPhone && " | "}
+                            {data.hospitalPhone && `T: ${data.hospitalPhone}`}
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -3579,7 +3734,7 @@ export default function Home() {
                           Age/Sex
                         </span>
                         <span className="col-span-2 font-bold">
-                          : {calculateAge(data.dob)} Year(s) /{" "}
+                          : {calculateAge(data.dob, data.admitDate)} Year(s) /{" "}
                           {data.ageSex.split("/")[1]?.trim() || "Male"}
                         </span>
                       </div>
@@ -3821,31 +3976,7 @@ export default function Home() {
                     lineHeight: "1.35",
                   }}
                 >
-                  {/* Watermark */}
-                  {data.watermarkEnabled &&
-                    data.watermarkPages.includes(2) &&
-                    data.watermarkImage && (
-                      <div
-                        className="absolute pointer-events-none z-0"
-                        style={{
-                          opacity: data.watermarkOpacity,
-                          left: `${data.watermarkX}%`,
-                          top: `${data.watermarkY}%`,
-                          transform: "translate(-50%, -50%)",
-                          width: "70%",
-                          maxWidth: "450px",
-                          display: "flex",
-                          justifyContent: "center",
-                          alignItems: "center",
-                        }}
-                      >
-                        <img
-                          src={data.watermarkImage}
-                          alt="watermark"
-                          className="w-full h-full object-contain select-none"
-                        />
-                      </div>
-                    )}
+                  {renderWatermark(2)}
 
                   {/* Discharge Summary Stamps - Page 2 */}
                   {data.dischargeSummaryStamps.map(
@@ -4058,31 +4189,7 @@ export default function Home() {
                     lineHeight: "1.35",
                   }}
                 >
-                  {/* Watermark */}
-                  {data.watermarkEnabled &&
-                    data.watermarkPages.includes(3) &&
-                    data.watermarkImage && (
-                      <div
-                        className="absolute pointer-events-none z-0"
-                        style={{
-                          opacity: data.watermarkOpacity,
-                          left: `${data.watermarkX}%`,
-                          top: `${data.watermarkY}%`,
-                          transform: "translate(-50%, -50%)",
-                          width: "70%",
-                          maxWidth: "450px",
-                          display: "flex",
-                          justifyContent: "center",
-                          alignItems: "center",
-                        }}
-                      >
-                        <img
-                          src={data.watermarkImage}
-                          alt="watermark"
-                          className="w-full h-full object-contain select-none"
-                        />
-                      </div>
-                    )}
+                  {renderWatermark(3)}
 
                   {/* Discharge Summary Stamps - Page 3 */}
                   {data.dischargeSummaryStamps.map(
@@ -4265,31 +4372,7 @@ export default function Home() {
                         lineHeight: "1.35",
                       }}
                     >
-                      {/* Watermark */}
-                      {data.watermarkEnabled &&
-                        data.watermarkPages.includes(pageNum) &&
-                        data.watermarkImage && (
-                          <div
-                            className="absolute pointer-events-none z-0"
-                            style={{
-                              opacity: data.watermarkOpacity,
-                              left: `${data.watermarkX}%`,
-                              top: `${data.watermarkY}%`,
-                              transform: "translate(-50%, -50%)",
-                              width: "70%",
-                              maxWidth: "450px",
-                              display: "flex",
-                              justifyContent: "center",
-                              alignItems: "center",
-                            }}
-                          >
-                            <img
-                              src={data.watermarkImage}
-                              alt="watermark"
-                              className="w-full h-full object-contain select-none"
-                            />
-                          </div>
-                        )}
+                      {renderWatermark(pageNum)}
 
                       <div className="relative z-10">
                         {/* Header */}
