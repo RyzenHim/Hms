@@ -39,6 +39,23 @@ interface Stamp {
   rotation: number; // rotation in degrees
   filter: "none" | "grayscale" | "sepia" | "brightness";
   isDefault: boolean;
+  pages: number[];
+  designer?: StampDesigner;
+}
+
+interface StampDesigner {
+  name: string;
+  mainText: string;
+  topText: string;
+  bottomText: string;
+  color: string;
+  shape: "round" | "rectangle";
+  inkOpacity: number;
+  distress: number;
+  inkSpread: number;
+  edgeSoftness: number;
+  fadeSide: "none" | "top" | "right" | "bottom" | "left";
+  fadeStrength: number;
 }
 
 interface HeaderLogo {
@@ -416,6 +433,7 @@ const defaultReportData: ReportData = {
       rotation: -15,
       filter: "none",
       isDefault: true,
+      pages: [1],
     },
   ],
 };
@@ -447,6 +465,20 @@ export default function Home() {
     "diagnostic" | "discharge" | "fitness"
   >("discharge");
   const [data, setData] = useState<ReportData>(defaultReportData);
+  const [stampDesigner, setStampDesigner] = useState<StampDesigner>({
+    name: "Approved Seal",
+    mainText: "APPROVED",
+    topText: "ORCHID MEDICAL CENTRE",
+    bottomText: "AUTHORISED SIGNATORY",
+    color: "#9b1c1c",
+    shape: "round",
+    inkOpacity: 0.82,
+    distress: 3,
+    inkSpread: 0.5,
+    edgeSoftness: 0,
+    fadeSide: "none",
+    fadeStrength: 0.5,
+  });
   const [activeTab, setActiveTab] = useState<
     | "hospital"
     | "patient"
@@ -871,6 +903,17 @@ export default function Home() {
     handleInputChange("dischargeSummaryStamps", updated);
   };
 
+  const toggleStampPage = (stampId: string, page: number) => {
+    const updated = data.dischargeSummaryStamps.map((stamp) => {
+      if (stamp.id !== stampId) return stamp;
+      const pages = stamp.pages.includes(page)
+        ? stamp.pages.filter((stampPage) => stampPage !== page)
+        : [...stamp.pages, page];
+      return { ...stamp, pages };
+    });
+    handleInputChange("dischargeSummaryStamps", updated);
+  };
+
   const addStamp = () => {
     const newId = `stamp_${Date.now()}`;
     const newStamp: Stamp = {
@@ -884,6 +927,7 @@ export default function Home() {
       rotation: -15,
       filter: "none",
       isDefault: false,
+      pages: [1],
     };
     handleInputChange("dischargeSummaryStamps", [
       ...data.dischargeSummaryStamps,
@@ -912,6 +956,136 @@ export default function Home() {
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  const escapeStampText = (value: string) =>
+    value.replace(/[&<>'"]/g, (character) => {
+      const entities: Record<string, string> = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "'": "&apos;",
+        '"': "&quot;",
+      };
+      return entities[character];
+    });
+
+  const createStampSvg = (design: StampDesigner = stampDesigner) => {
+    const {
+      mainText,
+      topText,
+      bottomText,
+      color,
+      shape,
+      inkOpacity,
+      distress,
+      inkSpread,
+      edgeSoftness,
+      fadeSide,
+      fadeStrength,
+    } = design;
+    const isRound = shape === "round";
+    const frame = isRound
+      ? '<circle cx="300" cy="300" r="255" fill="none" stroke="currentColor" stroke-width="18"/><circle cx="300" cy="300" r="220" fill="none" stroke="currentColor" stroke-width="5" stroke-dasharray="7 5"/>'
+      : '<rect x="42" y="120" width="516" height="360" rx="18" fill="none" stroke="currentColor" stroke-width="18"/><rect x="62" y="140" width="476" height="320" rx="10" fill="none" stroke="currentColor" stroke-width="5" stroke-dasharray="7 5"/>';
+    const titleSize = mainText.length > 12 ? 48 : 64;
+    const textY = isRound ? 315 : 320;
+    const fadedOpacity = Math.max(0, 1 - fadeStrength).toFixed(2);
+    const fadeGradient =
+      fadeSide === "top"
+        ? `<linearGradient id="fadeGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="white" stop-opacity="${fadedOpacity}"/><stop offset="42%" stop-color="white"/></linearGradient>`
+        : fadeSide === "bottom"
+          ? `<linearGradient id="fadeGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="58%" stop-color="white"/><stop offset="100%" stop-color="white" stop-opacity="${fadedOpacity}"/></linearGradient>`
+          : fadeSide === "left"
+            ? `<linearGradient id="fadeGradient" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="white" stop-opacity="${fadedOpacity}"/><stop offset="42%" stop-color="white"/></linearGradient>`
+            : fadeSide === "right"
+              ? `<linearGradient id="fadeGradient" x1="0" y1="0" x2="1" y2="0"><stop offset="58%" stop-color="white"/><stop offset="100%" stop-color="white" stop-opacity="${fadedOpacity}"/></linearGradient>`
+              : "";
+    const fadeMask = fadeSide === "none" ? "" : '<mask id="edgeFade"><rect width="600" height="600" fill="url(#fadeGradient)"/></mask>';
+
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
+      <defs>
+        <filter id="rough" x="-15%" y="-15%" width="130%" height="130%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" seed="8" result="noise"/>
+          <feMorphology in="SourceGraphic" operator="dilate" radius="${inkSpread}" result="spread"/>
+          <feGaussianBlur in="spread" stdDeviation="${edgeSoftness}" result="softened"/>
+          <feDisplacementMap in="softened" in2="noise" scale="${distress}" xChannelSelector="R" yChannelSelector="G"/>
+        </filter>
+        ${fadeGradient}
+        ${fadeMask}
+        ${isRound ? '<path id="topArc" d="M 105,300 A 195,195 0 0,1 495,300" fill="none"/><path id="bottomArc" d="M 105,300 A 195,195 0 0,0 495,300" fill="none"/>' : ""}
+      </defs>
+      <g color="${color}" opacity="${inkOpacity}" filter="url(#rough)"${fadeSide === "none" ? "" : ' mask="url(#edgeFade)"'}>
+        ${frame}
+        <path d="M ${isRound ? "170 345 L 430 345" : "95 360 L 505 360"}" stroke="currentColor" stroke-width="5"/>
+        <path d="M ${isRound ? "185 365 L 415 365" : "115 385 L 485 385"}" stroke="currentColor" stroke-width="2" stroke-dasharray="4 5"/>
+        ${isRound ? `<text fill="currentColor" font-family="Georgia, serif" font-size="22" font-weight="700" letter-spacing="2"><textPath href="#topArc" startOffset="50%" text-anchor="middle">${escapeStampText(topText)}</textPath></text><text fill="currentColor" font-family="Georgia, serif" font-size="18" font-weight="700" letter-spacing="1.5"><textPath href="#bottomArc" startOffset="50%" text-anchor="middle">${escapeStampText(bottomText)}</textPath></text>` : `<text x="300" y="195" fill="currentColor" text-anchor="middle" font-family="Georgia, serif" font-size="22" font-weight="700" letter-spacing="2">${escapeStampText(topText)}</text><text x="300" y="438" fill="currentColor" text-anchor="middle" font-family="Georgia, serif" font-size="18" font-weight="700" letter-spacing="1.5">${escapeStampText(bottomText)}</text>`}
+        <text x="300" y="${textY}" fill="currentColor" text-anchor="middle" font-family="Georgia, serif" font-size="${titleSize}" font-weight="900" letter-spacing="2">${escapeStampText(mainText)}</text>
+        <circle cx="300" cy="278" r="5" fill="currentColor"/><circle cx="300" cy="385" r="5" fill="currentColor"/>
+      </g>
+    </svg>`;
+  };
+
+  const stampSvgDataUrl = (design: StampDesigner = stampDesigner) =>
+    `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(createStampSvg(design))))}`;
+
+  const useDesignedStamp = () => {
+    const newStamp: Stamp = {
+      id: `stamp_${Date.now()}`,
+      label: stampDesigner.name || "Designed Stamp",
+      image: stampSvgDataUrl(stampDesigner),
+      size: 18,
+      opacity: 1,
+      x: 82,
+      y: 80,
+      rotation: -12,
+      filter: "none",
+      isDefault: false,
+      pages: [1],
+      designer: { ...stampDesigner },
+    };
+    handleInputChange("dischargeSummaryStamps", [
+      ...data.dischargeSummaryStamps,
+      newStamp,
+    ]);
+  };
+
+  const handleDesignedStampChange = <K extends keyof StampDesigner>(
+    stampId: string,
+    key: K,
+    value: StampDesigner[K],
+  ) => {
+    const updated = data.dischargeSummaryStamps.map((stamp) => {
+      if (stamp.id !== stampId || !stamp.designer) return stamp;
+      const designer = { ...stamp.designer, [key]: value };
+      return { ...stamp, designer, image: stampSvgDataUrl(designer) };
+    });
+    handleInputChange("dischargeSummaryStamps", updated);
+  };
+
+  const downloadDesignedStamp = (format: "svg" | "png") => {
+    const svg = createStampSvg();
+    const download = (href: string, extension: string) => {
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = `${(stampDesigner.name || "hospital-stamp").replace(/\s+/g, "-").toLowerCase()}.${extension}`;
+      link.click();
+    };
+
+    if (format === "svg") {
+      download(URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" })), "svg");
+      return;
+    }
+
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1200;
+      canvas.height = 1200;
+      canvas.getContext("2d")?.drawImage(image, 0, 0, 1200, 1200);
+      download(canvas.toDataURL("image/png"), "png");
+    };
+    image.src = stampSvgDataUrl();
   };
 
   // const cloneElementForPDF = (element: HTMLDivElement): HTMLDivElement => {
@@ -1274,6 +1448,20 @@ export default function Home() {
       </>
     );
   };
+
+  const reportPageStyle = (fontSize: string, lineHeight: string) => ({
+    boxSizing: "border-box" as const,
+    fontSize,
+    lineHeight,
+    backgroundColor: data.reportTheme.background,
+    color: data.reportTheme.text,
+  });
+
+  const reportSectionStyle = () => ({
+    backgroundColor: data.reportTheme.primarySoft,
+    color: data.reportTheme.heading,
+    borderLeft: `3px solid ${data.reportTheme.primary}`,
+  });
 
   const renderLogoWatermarkSettings = () => (
     <>
@@ -1824,6 +2012,85 @@ export default function Home() {
           </button>
         </div>
 
+        <div className="bg-slate-900 p-3.5 rounded-lg border border-emerald-900/60 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h5 className="text-xs font-bold text-emerald-300">Stamp Designer</h5>
+              <p className="text-[10px] text-slate-500">Create a distressed ink-style seal, export it, or add it directly to the document.</p>
+            </div>
+            <div className="w-20 h-20 rounded bg-white/95 p-1 shrink-0">
+              <img src={stampSvgDataUrl()} alt="Designed stamp preview" className="w-full h-full object-contain" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <input
+              value={stampDesigner.name}
+              onChange={(e) => setStampDesigner({ ...stampDesigner, name: e.target.value })}
+              placeholder="Saved stamp name"
+              className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
+            />
+            <select
+              value={stampDesigner.shape}
+              onChange={(e) => setStampDesigner({ ...stampDesigner, shape: e.target.value as StampDesigner["shape"] })}
+              className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
+            >
+              <option value="round">Round seal</option>
+              <option value="rectangle">Rectangle seal</option>
+            </select>
+          </div>
+          <input value={stampDesigner.mainText} onChange={(e) => setStampDesigner({ ...stampDesigner, mainText: e.target.value })} placeholder="Main stamp text" className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100 font-bold" />
+          <div className="grid grid-cols-2 gap-3">
+            <input value={stampDesigner.topText} onChange={(e) => setStampDesigner({ ...stampDesigner, topText: e.target.value })} placeholder="Top ring text" className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100" />
+            <input value={stampDesigner.bottomText} onChange={(e) => setStampDesigner({ ...stampDesigner, bottomText: e.target.value })} placeholder="Bottom ring text" className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100" />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">Ink color</label>
+              <input type="color" value={stampDesigner.color} onChange={(e) => setStampDesigner({ ...stampDesigner, color: e.target.value })} className="w-full h-8 rounded border border-slate-700 bg-slate-800" />
+            </div>
+            <div>
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">Ink ({Math.round(stampDesigner.inkOpacity * 100)}%)</label>
+              <input type="range" min="0.35" max="1" step="0.05" value={stampDesigner.inkOpacity} onChange={(e) => setStampDesigner({ ...stampDesigner, inkOpacity: parseFloat(e.target.value) })} className="w-full accent-emerald-500" />
+            </div>
+            <div>
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">Distress ({stampDesigner.distress})</label>
+              <input type="range" min="0" max="12" value={stampDesigner.distress} onChange={(e) => setStampDesigner({ ...stampDesigner, distress: parseInt(e.target.value) })} className="w-full accent-emerald-500" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">Ink spread ({stampDesigner.inkSpread.toFixed(1)})</label>
+              <input type="range" min="0" max="3" step="0.1" value={stampDesigner.inkSpread} onChange={(e) => setStampDesigner({ ...stampDesigner, inkSpread: parseFloat(e.target.value) })} className="w-full accent-emerald-500" />
+            </div>
+            <div>
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">Edge softness ({stampDesigner.edgeSoftness.toFixed(1)})</label>
+              <input type="range" min="0" max="1.5" step="0.1" value={stampDesigner.edgeSoftness} onChange={(e) => setStampDesigner({ ...stampDesigner, edgeSoftness: parseFloat(e.target.value) })} className="w-full accent-emerald-500" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">Fade ink on side</label>
+              <select value={stampDesigner.fadeSide} onChange={(e) => setStampDesigner({ ...stampDesigner, fadeSide: e.target.value as StampDesigner["fadeSide"] })} className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100">
+                <option value="none">No edge fade</option>
+                <option value="top">Top edge</option>
+                <option value="right">Right edge</option>
+                <option value="bottom">Bottom edge</option>
+                <option value="left">Left edge</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">Fade strength ({Math.round(stampDesigner.fadeStrength * 100)}%)</label>
+              <input type="range" min="0.1" max="1" step="0.05" value={stampDesigner.fadeStrength} onChange={(e) => setStampDesigner({ ...stampDesigner, fadeStrength: parseFloat(e.target.value) })} className="w-full accent-emerald-500" />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button onClick={useDesignedStamp} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400 px-3 py-1.5 rounded text-xs font-bold">Use in stamp area</button>
+            <button onClick={() => downloadDesignedStamp("png")} className="bg-slate-800 text-slate-200 hover:bg-slate-700 px-3 py-1.5 rounded text-xs font-semibold">Save PNG</button>
+            <button onClick={() => downloadDesignedStamp("svg")} className="bg-slate-800 text-slate-200 hover:bg-slate-700 px-3 py-1.5 rounded text-xs font-semibold">Save SVG</button>
+          </div>
+        </div>
+
         <div className="space-y-4">
           {data.dischargeSummaryStamps.map((stamp) => (
             <div
@@ -1871,6 +2138,105 @@ export default function Home() {
                     />
                   </div>
                 )}
+              </div>
+
+              {stamp.designer && (
+                <div className="border border-emerald-900/60 bg-emerald-950/10 rounded p-2.5 space-y-2.5">
+                  <div>
+                    <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wide">Editable stamp content</p>
+                    <p className="text-[10px] text-slate-500">Changes regenerate this designed stamp. Uploaded image stamps remain image-only.</p>
+                  </div>
+                  <input
+                    value={stamp.designer.mainText}
+                    onChange={(e) => handleDesignedStampChange(stamp.id, "mainText", e.target.value)}
+                    placeholder="Main stamp text"
+                    className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100 font-bold"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      value={stamp.designer.topText}
+                      onChange={(e) => handleDesignedStampChange(stamp.id, "topText", e.target.value)}
+                      placeholder="Top text"
+                      className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
+                    />
+                    <input
+                      value={stamp.designer.bottomText}
+                      onChange={(e) => handleDesignedStampChange(stamp.id, "bottomText", e.target.value)}
+                      placeholder="Bottom text"
+                      className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <input
+                      type="color"
+                      value={stamp.designer.color}
+                      onChange={(e) => handleDesignedStampChange(stamp.id, "color", e.target.value)}
+                      className="w-full h-8 rounded border border-slate-700 bg-slate-800"
+                      title="Ink color"
+                    />
+                    <select
+                      value={stamp.designer.shape}
+                      onChange={(e) => handleDesignedStampChange(stamp.id, "shape", e.target.value as StampDesigner["shape"])}
+                      className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100"
+                    >
+                      <option value="round">Round</option>
+                      <option value="rectangle">Rectangle</option>
+                    </select>
+                    <div className="text-[10px] text-slate-400">
+                      Ink {Math.round(stamp.designer.inkOpacity * 100)}%
+                      <input type="range" min="0.35" max="1" step="0.05" value={stamp.designer.inkOpacity} onChange={(e) => handleDesignedStampChange(stamp.id, "inkOpacity", parseFloat(e.target.value))} className="w-full accent-emerald-500" />
+                    </div>
+                  </div>
+                  <div className="text-[10px] text-slate-400">
+                    Distress / ink imperfection ({stamp.designer.distress})
+                    <input type="range" min="0" max="12" value={stamp.designer.distress} onChange={(e) => handleDesignedStampChange(stamp.id, "distress", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-400">
+                    <div>
+                      Ink spread ({stamp.designer.inkSpread.toFixed(1)})
+                      <input type="range" min="0" max="3" step="0.1" value={stamp.designer.inkSpread} onChange={(e) => handleDesignedStampChange(stamp.id, "inkSpread", parseFloat(e.target.value))} className="w-full accent-emerald-500" />
+                    </div>
+                    <div>
+                      Edge softness ({stamp.designer.edgeSoftness.toFixed(1)})
+                      <input type="range" min="0" max="1.5" step="0.1" value={stamp.designer.edgeSoftness} onChange={(e) => handleDesignedStampChange(stamp.id, "edgeSoftness", parseFloat(e.target.value))} className="w-full accent-emerald-500" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-400">
+                    <div>
+                      Fade ink on side
+                      <select value={stamp.designer.fadeSide} onChange={(e) => handleDesignedStampChange(stamp.id, "fadeSide", e.target.value as StampDesigner["fadeSide"])} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100">
+                        <option value="none">No fade</option>
+                        <option value="top">Top</option>
+                        <option value="right">Right</option>
+                        <option value="bottom">Bottom</option>
+                        <option value="left">Left</option>
+                      </select>
+                    </div>
+                    <div>
+                      Fade strength ({Math.round(stamp.designer.fadeStrength * 100)}%)
+                      <input type="range" min="0.1" max="1" step="0.05" value={stamp.designer.fadeStrength} onChange={(e) => handleDesignedStampChange(stamp.id, "fadeStrength", parseFloat(e.target.value))} className="mt-2 w-full accent-emerald-500" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-[10px] text-slate-500 font-semibold mb-1">Apply stamp on page(s)</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {Array.from({ length: totalPages }).map((_, index) => {
+                    const page = index + 1;
+                    const selected = stamp.pages.includes(page);
+                    return (
+                      <button
+                        key={page}
+                        onClick={() => toggleStampPage(stamp.id, page)}
+                        className={`px-2 py-1 rounded text-[10px] font-semibold border ${selected ? "bg-emerald-950/50 border-emerald-500 text-emerald-300" : "bg-slate-800 border-slate-700 text-slate-400"}`}
+                      >
+                        Page {page}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Stamp Size */}
@@ -3220,11 +3586,7 @@ export default function Home() {
               <div
                 ref={fitSheetRef}
                 className="bg-white text-black p-[18mm] font-sans shadow-lg mx-auto w-full min-h-[297mm] flex flex-col justify-between relative overflow-hidden"
-                style={{
-                  boxSizing: "border-box",
-                  fontSize: "11.5px",
-                  lineHeight: "1.5",
-                }}
+                style={reportPageStyle("11.5px", "1.5")}
               >
                 {renderWatermark(1)}
 
@@ -3244,7 +3606,10 @@ export default function Home() {
                       className="text-[9px] text-right space-y-0.5"
                       style={{ color: data.reportTheme.muted }}
                     >
-                      <p className="font-bold text-gray-800">
+                      <p
+                        className="font-bold"
+                        style={{ color: data.reportTheme.heading }}
+                      >
                         {data.hospitalSub}
                       </p>
                       <p>{data.hospitalAddress}</p>
@@ -3259,7 +3624,10 @@ export default function Home() {
                     </div>
                   </div>
 
-                  <div className="flex justify-between items-center bg-gray-100 px-3 py-1.5 mb-8 font-bold text-gray-850">
+                  <div
+                    className="flex justify-between items-center px-3 py-1.5 mb-8 font-bold"
+                    style={reportSectionStyle()}
+                  >
                     <span>FITNESS / MEDICAL CERTIFICATE</span>
                     <span className="text-[9px] text-gray-500">
                       (OFFICIAL RECORD)
@@ -3389,11 +3757,7 @@ export default function Home() {
               <div
                 ref={diagSheetRef}
                 className="bg-white text-black p-[15mm] font-sans shadow-lg mx-auto w-full min-h-[297mm] flex flex-col justify-between relative overflow-hidden"
-                style={{
-                  boxSizing: "border-box",
-                  fontSize: "11px",
-                  lineHeight: "1.4",
-                }}
+                style={reportPageStyle("11px", "1.4")}
               >
                 {renderWatermark(1)}
 
@@ -3413,7 +3777,10 @@ export default function Home() {
                       className="text-[9px] text-right space-y-0.5"
                       style={{ color: data.reportTheme.muted }}
                     >
-                      <p className="font-bold text-gray-800">
+                      <p
+                        className="font-bold"
+                        style={{ color: data.reportTheme.heading }}
+                      >
                         {data.hospitalSub}
                       </p>
                       <p>{data.hospitalAddress}</p>
@@ -3431,7 +3798,10 @@ export default function Home() {
                     </div>
                   </div>
 
-                  <div className="flex justify-between items-center bg-gray-100 px-3 py-1 mb-4 font-bold text-gray-700">
+                  <div
+                    className="flex justify-between items-center px-3 py-1 mb-4 font-bold"
+                    style={reportSectionStyle()}
+                  >
                     <span>DIAGNOSTIC REPORTS</span>
                     <span className="text-[9px] text-gray-500">
                       (FOR DIAGNOSTIC REPORTS ONLY)
@@ -3633,18 +4003,14 @@ export default function Home() {
                 <div
                   ref={page1Ref}
                   className="bg-white text-black p-[12mm] font-sans shadow-lg mx-auto w-full min-h-[297mm] flex flex-col justify-between relative overflow-hidden"
-                  style={{
-                    boxSizing: "border-box",
-                    fontSize: "10.5px",
-                    lineHeight: "1.35",
-                  }}
+                  style={reportPageStyle("10.5px", "1.35")}
                 >
                   {renderWatermark(1)}
 
                   {/* Discharge Summary Stamps - Page 1 */}
                   {data.dischargeSummaryStamps.map(
                     (stamp) =>
-                      stamp.image && (
+                      stamp.image && stamp.pages.includes(1) && (
                         <div
                           key={stamp.id}
                           className="absolute pointer-events-none z-20"
@@ -3706,7 +4072,10 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <div className="flex justify-between items-center bg-gray-150 px-2.5 py-0.5 rounded-sm mb-3 font-bold text-[11px] text-gray-700">
+                    <div
+                      className="flex justify-between items-center px-2.5 py-0.5 rounded-sm mb-3 font-bold text-[11px]"
+                      style={reportSectionStyle()}
+                    >
                       <span>DISCHARGE SUMMARY</span>
                     </div>
 
@@ -3970,18 +4339,14 @@ export default function Home() {
                 <div
                   ref={page2Ref}
                   className="bg-white text-black p-[12mm] font-sans shadow-lg mx-auto w-full min-h-[297mm] flex flex-col justify-between relative overflow-hidden"
-                  style={{
-                    boxSizing: "border-box",
-                    fontSize: "10.5px",
-                    lineHeight: "1.35",
-                  }}
+                  style={reportPageStyle("10.5px", "1.35")}
                 >
                   {renderWatermark(2)}
 
                   {/* Discharge Summary Stamps - Page 2 */}
                   {data.dischargeSummaryStamps.map(
                     (stamp) =>
-                      stamp.image && (
+                      stamp.image && stamp.pages.includes(2) && (
                         <div
                           key={stamp.id}
                           className="absolute pointer-events-none z-20"
@@ -4183,18 +4548,14 @@ export default function Home() {
                 <div
                   ref={page3Ref}
                   className="bg-white text-black p-[12mm] font-sans shadow-lg mx-auto w-full min-h-[297mm] flex flex-col justify-between relative overflow-hidden"
-                  style={{
-                    boxSizing: "border-box",
-                    fontSize: "10.5px",
-                    lineHeight: "1.35",
-                  }}
+                  style={reportPageStyle("10.5px", "1.35")}
                 >
                   {renderWatermark(3)}
 
                   {/* Discharge Summary Stamps - Page 3 */}
                   {data.dischargeSummaryStamps.map(
                     (stamp) =>
-                      stamp.image && (
+                      stamp.image && stamp.pages.includes(3) && (
                         <div
                           key={stamp.id}
                           className="absolute pointer-events-none z-20"
@@ -4253,7 +4614,10 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <div className="flex justify-between items-center bg-gray-150 px-2.5 py-0.5 rounded-sm mb-4 font-bold text-[11px] text-gray-700">
+                    <div
+                      className="flex justify-between items-center px-2.5 py-0.5 rounded-sm mb-4 font-bold text-[11px]"
+                      style={reportSectionStyle()}
+                    >
                       <span>DISCHARGE SUMMARY (FOLLOW-UP)</span>
                     </div>
 
@@ -4366,18 +4730,51 @@ export default function Home() {
                         customPagesRefs.current[idx] = el;
                       }}
                       className="bg-white text-black p-[12mm] font-sans shadow-lg mx-auto w-full min-h-[297mm] flex flex-col justify-between relative overflow-hidden"
-                      style={{
-                        boxSizing: "border-box",
-                        fontSize: "10.5px",
-                        lineHeight: "1.35",
-                      }}
+                      style={reportPageStyle("10.5px", "1.35")}
                     >
                       {renderWatermark(pageNum)}
 
+                      {data.dischargeSummaryStamps.map(
+                        (stamp) =>
+                          stamp.image && stamp.pages.includes(pageNum) && (
+                            <div
+                              key={stamp.id}
+                              className="absolute pointer-events-none z-20"
+                              style={{
+                                left: `${stamp.x}%`,
+                                top: `${stamp.y}%`,
+                                transform: `translate(-50%, -50%) rotate(${stamp.rotation}deg)`,
+                                width: `${stamp.size}%`,
+                                opacity: stamp.opacity,
+                                filter:
+                                  stamp.filter === "grayscale"
+                                    ? "grayscale(100%)"
+                                    : stamp.filter === "sepia"
+                                      ? "sepia(100%)"
+                                      : stamp.filter === "brightness"
+                                        ? "brightness(1.2)"
+                                        : "none",
+                              }}
+                            >
+                              <img
+                                src={stamp.image}
+                                alt={stamp.label}
+                                className="w-full h-full object-contain select-none"
+                              />
+                            </div>
+                          ),
+                      )}
+
                       <div className="relative z-10">
                         {/* Header */}
-                        <div className="flex justify-between items-start border-b border-gray-300 pb-2 mb-3">
-                          <div className="text-2xl font-black text-gray-800 flex items-center">
+                        <div
+                          className="flex justify-between items-start border-b pb-2 mb-3"
+                          style={{ borderColor: data.reportTheme.border }}
+                        >
+                          <div
+                            className="text-2xl font-black flex items-center"
+                            style={{ color: data.reportTheme.heading }}
+                          >
                             {data.logoType === "image" && data.logoImage ? (
                               <img
                                 src={data.logoImage}
@@ -4407,7 +4804,10 @@ export default function Home() {
                           </div>
                         </div>
 
-                        <div className="flex justify-between items-center bg-gray-150 px-2.5 py-0.5 rounded-sm mb-4 font-bold text-[11px] text-gray-700">
+                        <div
+                          className="flex justify-between items-center px-2.5 py-0.5 rounded-sm mb-4 font-bold text-[11px]"
+                          style={reportSectionStyle()}
+                        >
                           <span>
                             DISCHARGE SUMMARY (ADDITIONAL DOCUMENTATION)
                           </span>
