@@ -4,8 +4,6 @@ import React, { useState, useRef } from "react";
 import {
   Download,
   RotateCcw,
-  User,
-  ClipboardList,
   Settings,
   FileBadge2,
   Plus,
@@ -15,203 +13,24 @@ import {
   Square,
   Building2,
 } from "lucide-react";
-
-interface Medication {
-  name: string;
-  instruction: string;
-}
-
-interface FindingItem {
-  id: string;
-  label: string;
-  value: string;
-  isDefault: boolean;
-}
-
-interface Stamp {
-  id: string;
-  label: string;
-  image: string; // Base64
-  size: number; // percentage of page width
-  opacity: number; // 0-1
-  x: number; // horizontal position in %
-  y: number; // vertical position in %
-  rotation: number; // rotation in degrees
-  filter: "none" | "grayscale" | "sepia" | "brightness";
-  isDefault: boolean;
-  pages: number[];
-  designer?: StampDesigner;
-}
-
-interface StampDesigner {
-  name: string;
-  mainText: string;
-  topText: string;
-  bottomText: string;
-  color: string;
-  shape: "round" | "rectangle";
-  inkOpacity: number;
-  distress: number;
-  inkSpread: number;
-  edgeSoftness: number;
-  fadeSide: "none" | "top" | "right" | "bottom" | "left";
-  fadeStrength: number;
-}
-
-interface HeaderLogo {
-  id: string;
-  image: string; // Base64
-  size: number; // percentage of header width
-  opacity: number; // 0-1
-  x: number; // horizontal position in %
-  y: number; // vertical position in %
-  isDefault: boolean;
-}
-
-interface ReportTheme {
-  primary: string;
-  primarySoft: string;
-  text: string;
-  muted: string;
-  border: string;
-  heading: string;
-  background: string;
-}
-
-interface ReportData {
-  // Hospital Info
-  hospitalName: string;
-  hospitalSub: string;
-  hospitalAddress: string;
-  hospitalEmail: string;
-  hospitalPhone: string;
-  hospitalWebsite: string;
-  hospitalEmergency: string;
-  cin: string;
-  hospitalTagline: string;
-  dischargeFooterNote: string;
-  dischargeFooterBrand: string;
-  fitnessFooterText: string;
-  radiologyStampLabel: string;
-  radiologyStampSubtext: string;
-
-  // Patient Info (shared)
-  patientName: string;
-  ageSex: string;
-  uhid: string;
-  refDoctor: string;
-  aadharCard: string;
-  address: string;
-  companyName: string;
-  ipNo: string;
-  orderDate: string;
-  reportDate: string;
-  facility: string;
-  dob: string;
-  mobile: string;
-  orderingBedWard: string;
-  currentBedWard: string;
-
-  // Diagnostic Report Specific Findings
-  reportTitle: string;
-  clinicalProfile: string;
-  rightKidney: string;
-  leftKidney: string;
-  ureters: string;
-  urinaryBladder: string;
-  prostate: string;
-  impression: string;
-  suggestion: string;
-  reportSavedBy: string;
-  printDateTime: string;
-  printRunBy: string;
-
-  // Fitness Certificate Specific Fields
-  fitTitle: string;
-  fitStatus: "fit" | "unfit";
-  fitStatement: string;
-  fitRemarks: string;
-  fitDate: string;
-  fitSignatory: string;
-
-  // Discharge Summary Specific Fields
-  admitDate: string;
-  dischargeDateTime: string;
-  primaryConsultant: string;
-  crossConsultants: string;
-  finalDiagnosis: string;
-  dischargeResult: string;
-  natureOfTreatment: string;
-  reasonForAdmission: string;
-  hopi: string;
-  pastHistory: string;
-  familyHistory: string;
-  allergy: string;
-
-  // O/E (At Admission)
-  pulse: string;
-  bp: string;
-  temp: string;
-  spo2: string;
-  respiration: string;
-  pallor: string;
-  cyanosis: string;
-  edema: string;
-
-  // Discharge Summary Page 2
-  treatmentGiven: string[];
-  investigations: string;
-  courseDuringStay: string;
-  procedureDone: string;
-  urgentCareInfo: string;
-  medications: Medication[];
-  specialNeeds: string;
-  dischargeFollowUp: string;
-  conditionOnDischarge: string;
-
-  // Discharge Summary Page 3
-  dischargeFollowUpVisitDate: string;
-  preparedBy: string;
-  verifiedBy: string;
-  receivedBy: string;
-  receivedDate: string;
-  receivedTime: string;
-
-  customPages: string[];
-
-  // Custom Logo and Watermarks
-  logoType: "text" | "image";
-  logoImage: string; // Base64
-  logoTextColor: string;
-  logoTextSize: number;
-  logoTextWeight: number;
-  headerLogos: HeaderLogo[];
-  watermarkEnabled: boolean;
-  watermarkImageEnabled: boolean;
-  watermarkImage: string; // Base64
-  watermarkOpacity: number;
-  watermarkPages: number[]; // 1-indexed page list
-  watermarkX: number; // horizontal position in %
-  watermarkY: number; // vertical position in %
-  watermarkText: string;
-  watermarkTextColor: string;
-  watermarkTextSize: number;
-  watermarkTextWeight: number;
-  watermarkTextOpacity: number;
-  watermarkTextRotation: number;
-  watermarkTextSkewX: number;
-  watermarkTextSkewY: number;
-  watermarkTextX: number;
-  watermarkTextY: number;
-  watermarkTextLetterSpacing: number;
-  watermarkTextStyle: "normal" | "italic";
-  watermarkTextTransform: "none" | "uppercase" | "lowercase";
-  reportTheme: ReportTheme;
-  findingsList: FindingItem[];
-
-  // Discharge Summary Stamps
-  dischargeSummaryStamps: Stamp[];
-}
+import { calculateAge } from "../lib/report-utils";
+import {
+  getPatient,
+  listPatients,
+  removePatient,
+  savePatient,
+} from "../lib/patient-api";
+import { PatientManagement } from "../components/PatientManagement";
+import { AppSidebar } from "../components/AppSidebar";
+import type {
+  FindingItem,
+  Medication,
+  PatientListItem,
+  ReportData,
+  ReportTheme,
+  Stamp,
+  StampDesigner,
+} from "../types/report";
 
 // Default light blue medical cross/hands emblem as a default watermark Base64 SVG
 const defaultWatermarkSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400"><path fill="%2322c55e" fill-opacity="0.12" d="M200,40 C130,40 100,100 100,160 C100,240 200,360 200,360 C200,360 300,240 300,160 C300,100 270,40 200,40 Z M200,220 C167,220 140,193 140,160 C140,127 167,100 200,100 C233,100 260,127 260,160 C260,193 233,220 200,220 Z"/></svg>`;
@@ -434,33 +253,13 @@ const defaultReportData: ReportData = {
       filter: "none",
       isDefault: true,
       pages: [1],
+      documentTypes: ["discharge"],
     },
   ],
 };
 
-// Helper function to calculate age at the admit date (format: DD/MM/YYYY)
-const calculateAge = (dobString: string, admitDateString: string): number => {
-  if (!dobString || !admitDateString) return 0;
-  try {
-    const [day, month, year] = dobString.split("/").map(Number);
-    const dob = new Date(year, month - 1, day);
-    const [admitDay, admitMonth, admitYear] = admitDateString
-      .split(" ")[0]
-      .split("/")
-      .map(Number);
-    const admitDate = new Date(admitYear, admitMonth - 1, admitDay);
-    let age = admitDate.getFullYear() - dob.getFullYear();
-    const monthDiff = admitDate.getMonth() - dob.getMonth();
-    if (monthDiff < 0 || (monthDiff === 0 && admitDate.getDate() < day)) {
-      age--;
-    }
-    return age;
-  } catch {
-    return 0;
-  }
-};
-
 export default function Home() {
+  const [workspace, setWorkspace] = useState<"editor" | "patients">("editor");
   const [docType, setDocType] = useState<
     "diagnostic" | "discharge" | "fitness"
   >("discharge");
@@ -489,6 +288,12 @@ export default function Home() {
     | "footer"
   >("patient");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSavingPatient, setIsSavingPatient] = useState(false);
+  const [isLoadingPatients, setIsLoadingPatients] = useState(false);
+  const [deletingPatientId, setDeletingPatientId] = useState<string | null>(null);
+  const [editingPatientId, setEditingPatientId] = useState<string | null>(null);
+  const [patients, setPatients] = useState<PatientListItem[]>([]);
+  const [patientSearch, setPatientSearch] = useState("");
   const [showPDFModal, setShowPDFModal] = useState(false);
   const [selectedPages, setSelectedPages] = useState<{
     [key: string]: boolean;
@@ -516,6 +321,74 @@ export default function Home() {
     value: ReportData[K],
   ) => {
     setData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const loadPatients = async () => {
+    setIsLoadingPatients(true);
+    try {
+      setPatients(await listPatients());
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Unable to load patients.");
+    } finally {
+      setIsLoadingPatients(false);
+    }
+  };
+
+  const openPatientManagement = () => {
+    setWorkspace("patients");
+    void loadPatients();
+  };
+
+  const loadPatientIntoEditor = async (patientId: string) => {
+    try {
+      const patient = await getPatient(patientId);
+
+      // Images are deliberately not persisted; defaults keep the editor usable.
+      setData({ ...defaultReportData, ...patient.patientDetails } as ReportData);
+      setEditingPatientId(patient._id);
+      setWorkspace("editor");
+      setActiveTab("patient");
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Unable to load patient details.");
+    }
+  };
+
+  const deletePatient = async (patientId: string) => {
+    if (!confirm("Delete this patient record? This cannot be undone.")) return;
+
+    setDeletingPatientId(patientId);
+    try {
+      await removePatient(patientId);
+
+      if (editingPatientId === patientId) setEditingPatientId(null);
+      await loadPatients();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Unable to delete patient.");
+    } finally {
+      setDeletingPatientId(null);
+    }
+  };
+
+  const savePatientDetails = async () => {
+    if (!data.uhid.trim()) {
+      alert("Enter a UHID before saving patient details.");
+      return;
+    }
+
+    setIsSavingPatient(true);
+    try {
+      const savedPatient = await savePatient(data, editingPatientId);
+      setEditingPatientId(savedPatient.id);
+      alert(savedPatient.message);
+    } catch (error) {
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Unable to save patient details. Please try again.",
+      );
+    } finally {
+      setIsSavingPatient(false);
+    }
   };
 
   const handleFindingChange = (
@@ -914,6 +787,20 @@ export default function Home() {
     handleInputChange("dischargeSummaryStamps", updated);
   };
 
+  const toggleStampDocumentType = (
+    stampId: string,
+    documentType: "discharge" | "fitness",
+  ) => {
+    const updated = data.dischargeSummaryStamps.map((stamp) => {
+      if (stamp.id !== stampId) return stamp;
+      const documentTypes = stamp.documentTypes.includes(documentType)
+        ? stamp.documentTypes.filter((type) => type !== documentType)
+        : [...stamp.documentTypes, documentType];
+      return { ...stamp, documentTypes };
+    });
+    handleInputChange("dischargeSummaryStamps", updated);
+  };
+
   const addStamp = () => {
     const newId = `stamp_${Date.now()}`;
     const newStamp: Stamp = {
@@ -928,6 +815,7 @@ export default function Home() {
       filter: "none",
       isDefault: false,
       pages: [1],
+      documentTypes: ["discharge"],
     };
     handleInputChange("dischargeSummaryStamps", [
       ...data.dischargeSummaryStamps,
@@ -1042,6 +930,7 @@ export default function Home() {
       filter: "none",
       isDefault: false,
       pages: [1],
+      documentTypes: ["discharge"],
       designer: { ...stampDesigner },
     };
     handleInputChange("dischargeSummaryStamps", [
@@ -1308,6 +1197,48 @@ export default function Home() {
       : docType === "fitness"
         ? 1
         : 3 + data.customPages.length;
+
+  const renderDocumentStamps = (
+    documentType: "discharge" | "fitness",
+    page: number,
+  ) =>
+    data.dischargeSummaryStamps.map((stamp) => {
+      // Treat stamps created before document selection was added as discharge stamps.
+      const appliesToDocument = (stamp.documentTypes ?? ["discharge"]).includes(
+        documentType,
+      );
+      const appliesToPage = stamp.pages.includes(page);
+
+      if (!stamp.image || !appliesToDocument || !appliesToPage) return null;
+
+      return (
+        <div
+          key={stamp.id}
+          className="absolute pointer-events-none z-20"
+          style={{
+            left: `${stamp.x}%`,
+            top: `${stamp.y}%`,
+            transform: `translate(-50%, -50%) rotate(${stamp.rotation}deg)`,
+            width: `${stamp.size}%`,
+            opacity: stamp.opacity,
+            filter:
+              stamp.filter === "grayscale"
+                ? "grayscale(100%)"
+                : stamp.filter === "sepia"
+                  ? "sepia(100%)"
+                  : stamp.filter === "brightness"
+                    ? "brightness(1.2)"
+                    : "none",
+          }}
+        >
+          <img
+            src={stamp.image}
+            alt={stamp.label}
+            className="w-full h-full object-contain select-none"
+          />
+        </div>
+      );
+    });
 
   const renderHeaderBrand = (compact = false) => {
     const textSize = compact
@@ -2001,7 +1932,7 @@ export default function Home() {
         <div className="flex justify-between items-center">
           <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
             <ImageIcon className="w-4 h-4" />
-            Discharge Summary Stamps
+            Shared Document Stamps
           </h4>
           <button
             onClick={addStamp}
@@ -2219,6 +2150,24 @@ export default function Home() {
                   </div>
                 </div>
               )}
+
+              <div>
+                <label className="block text-[10px] text-slate-500 font-semibold mb-1">Use this shared stamp in</label>
+                <div className="flex gap-1.5">
+                  {(["discharge", "fitness"] as const).map((documentType) => {
+                    const selected = stamp.documentTypes.includes(documentType);
+                    return (
+                      <button
+                        key={documentType}
+                        onClick={() => toggleStampDocumentType(stamp.id, documentType)}
+                        className={`px-2 py-1 rounded text-[10px] font-semibold border ${selected ? "bg-emerald-950/50 border-emerald-500 text-emerald-300" : "bg-slate-800 border-slate-700 text-slate-400"}`}
+                      >
+                        {documentType === "discharge" ? "Discharge Summary" : "Fitness Certificate"}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
               <div>
                 <label className="block text-[10px] text-slate-500 font-semibold mb-1">Apply stamp on page(s)</label>
@@ -2440,6 +2389,13 @@ export default function Home() {
 
         <div className="flex items-center space-x-3">
           <button
+            onClick={savePatientDetails}
+            disabled={isSavingPatient}
+            className="flex items-center space-x-2 px-3 py-2 text-sm bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold rounded-lg border border-sky-400 disabled:opacity-50 transition-all cursor-pointer"
+          >
+            <span>{isSavingPatient ? "Saving..." : "Save Details"}</span>
+          </button>
+          <button
             onClick={handleReset}
             className="flex items-center space-x-2 px-3 py-2 text-sm bg-slate-850 hover:bg-slate-800 text-slate-300 rounded-lg border border-slate-800 transition-all cursor-pointer"
           >
@@ -2457,8 +2413,32 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Workspace Panel Split */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        <AppSidebar
+          workspace={workspace}
+          onOpenEditor={() => setWorkspace("editor")}
+          onOpenPatients={openPatientManagement}
+        />
+
+        {workspace === "patients" ? (
+          <PatientManagement
+            patients={patients}
+            search={patientSearch}
+            isLoading={isLoadingPatients}
+            deletingPatientId={deletingPatientId}
+            onSearchChange={setPatientSearch}
+            onRefresh={() => void loadPatients()}
+            onCreatePatient={() => {
+              setEditingPatientId(null);
+              setWorkspace("editor");
+              setActiveTab("patient");
+            }}
+            onOpenPatient={(patientId) => void loadPatientIntoEditor(patientId)}
+            onDeletePatient={(patientId) => void deletePatient(patientId)}
+          />
+        ) : (
+          /* Workspace Panel Split */
+          <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* Left Form Settings Panel */}
         <div className="w-full lg:w-5/12 flex flex-col border-r border-slate-800 bg-slate-900/50 overflow-hidden min-h-0">
           {/* Settings Tabs */}
@@ -2870,6 +2850,36 @@ export default function Home() {
                       className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
                     />
                   </div>
+                  {docType === "diagnostic" && (
+                    <>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Order Date
+                        </label>
+                        <input
+                          type="text"
+                          value={data.orderDate}
+                          onChange={(e) =>
+                            handleInputChange("orderDate", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Report Date
+                        </label>
+                        <input
+                          type="text"
+                          value={data.reportDate}
+                          onChange={(e) =>
+                            handleInputChange("reportDate", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                    </>
+                  )}
                   <div>
                     <label className="block text-xs font-semibold text-slate-400 mb-1">
                       Admit Date
@@ -3075,6 +3085,20 @@ export default function Home() {
                     placeholder="Standard safety precautions should be followed..."
                   />
                 </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">
+                    Certificate Footer Text
+                  </label>
+                  <input
+                    type="text"
+                    value={data.fitnessFooterText}
+                    onChange={(e) =>
+                      handleInputChange("fitnessFooterText", e.target.value)
+                    }
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                    placeholder="e.g. Orchid Medical Centre Pvt. Ltd. • emergency helpline: 911-7100-100"
+                  />
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-400 mb-1">
@@ -3223,6 +3247,20 @@ export default function Home() {
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
                   />
                 </div>
+                <div className="pt-4 border-t border-slate-800">
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">
+                    Report Saved By
+                  </label>
+                  <input
+                    type="text"
+                    value={data.reportSavedBy}
+                    onChange={(e) =>
+                      handleInputChange("reportSavedBy", e.target.value)
+                    }
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                    placeholder="Name (date and time)"
+                  />
+                </div>
               </div>
             )}
 
@@ -3290,6 +3328,35 @@ export default function Home() {
                       value={data.natureOfTreatment}
                       onChange={(e) =>
                         handleInputChange("natureOfTreatment", e.target.value)
+                      }
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">
+                      Prepared By
+                    </label>
+                    <input
+                      type="text"
+                      value={data.preparedBy}
+                      onChange={(e) =>
+                        handleInputChange("preparedBy", e.target.value)
+                      }
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">
+                      Verified By
+                    </label>
+                    <input
+                      type="text"
+                      value={data.verifiedBy}
+                      onChange={(e) =>
+                        handleInputChange("verifiedBy", e.target.value)
                       }
                       className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
                     />
@@ -3569,7 +3636,8 @@ export default function Home() {
             {activeTab === "footer" && (
               <div className="space-y-6">
                 {renderLogoWatermarkSettings()}
-                {docType === "discharge" && renderDischargeSummaryStamps()}
+                {(docType === "discharge" || docType === "fitness") &&
+                  renderDischargeSummaryStamps()}
               </div>
             )}
           </div>
@@ -3589,6 +3657,7 @@ export default function Home() {
                 style={reportPageStyle("11.5px", "1.5")}
               >
                 {renderWatermark(1)}
+                {renderDocumentStamps("fitness", 1)}
 
                 <div className="relative z-10">
                   {/* Header */}
@@ -4006,38 +4075,7 @@ export default function Home() {
                   style={reportPageStyle("10.5px", "1.35")}
                 >
                   {renderWatermark(1)}
-
-                  {/* Discharge Summary Stamps - Page 1 */}
-                  {data.dischargeSummaryStamps.map(
-                    (stamp) =>
-                      stamp.image && stamp.pages.includes(1) && (
-                        <div
-                          key={stamp.id}
-                          className="absolute pointer-events-none z-20"
-                          style={{
-                            left: `${stamp.x}%`,
-                            top: `${stamp.y}%`,
-                            transform: `translate(-50%, -50%) rotate(${stamp.rotation}deg)`,
-                            width: `${stamp.size}%`,
-                            opacity: stamp.opacity,
-                            filter:
-                              stamp.filter === "grayscale"
-                                ? "grayscale(100%)"
-                                : stamp.filter === "sepia"
-                                  ? "sepia(100%)"
-                                  : stamp.filter === "brightness"
-                                    ? "brightness(1.2)"
-                                    : "none",
-                          }}
-                        >
-                          <img
-                            src={stamp.image}
-                            alt={stamp.label}
-                            className="w-full h-full object-contain select-none"
-                          />
-                        </div>
-                      ),
-                  )}
+                  {renderDocumentStamps("discharge", 1)}
 
                   <div className="relative z-10">
                     {/* Header */}
@@ -4342,38 +4380,7 @@ export default function Home() {
                   style={reportPageStyle("10.5px", "1.35")}
                 >
                   {renderWatermark(2)}
-
-                  {/* Discharge Summary Stamps - Page 2 */}
-                  {data.dischargeSummaryStamps.map(
-                    (stamp) =>
-                      stamp.image && stamp.pages.includes(2) && (
-                        <div
-                          key={stamp.id}
-                          className="absolute pointer-events-none z-20"
-                          style={{
-                            left: `${stamp.x}%`,
-                            top: `${stamp.y}%`,
-                            transform: `translate(-50%, -50%) rotate(${stamp.rotation}deg)`,
-                            width: `${stamp.size}%`,
-                            opacity: stamp.opacity,
-                            filter:
-                              stamp.filter === "grayscale"
-                                ? "grayscale(100%)"
-                                : stamp.filter === "sepia"
-                                  ? "sepia(100%)"
-                                  : stamp.filter === "brightness"
-                                    ? "brightness(1.2)"
-                                    : "none",
-                          }}
-                        >
-                          <img
-                            src={stamp.image}
-                            alt={stamp.label}
-                            className="w-full h-full object-contain select-none"
-                          />
-                        </div>
-                      ),
-                  )}
+                  {renderDocumentStamps("discharge", 2)}
 
                   <div className="relative z-10">
                     <div className="grid grid-cols-3 border border-gray-300 rounded p-2 mb-3 text-[9px]">
@@ -4551,38 +4558,7 @@ export default function Home() {
                   style={reportPageStyle("10.5px", "1.35")}
                 >
                   {renderWatermark(3)}
-
-                  {/* Discharge Summary Stamps - Page 3 */}
-                  {data.dischargeSummaryStamps.map(
-                    (stamp) =>
-                      stamp.image && stamp.pages.includes(3) && (
-                        <div
-                          key={stamp.id}
-                          className="absolute pointer-events-none z-20"
-                          style={{
-                            left: `${stamp.x}%`,
-                            top: `${stamp.y}%`,
-                            transform: `translate(-50%, -50%) rotate(${stamp.rotation}deg)`,
-                            width: `${stamp.size}%`,
-                            opacity: stamp.opacity,
-                            filter:
-                              stamp.filter === "grayscale"
-                                ? "grayscale(100%)"
-                                : stamp.filter === "sepia"
-                                  ? "sepia(100%)"
-                                  : stamp.filter === "brightness"
-                                    ? "brightness(1.2)"
-                                    : "none",
-                          }}
-                        >
-                          <img
-                            src={stamp.image}
-                            alt={stamp.label}
-                            className="w-full h-full object-contain select-none"
-                          />
-                        </div>
-                      ),
-                  )}
+                  {renderDocumentStamps("discharge", 3)}
 
                   <div className="relative z-10">
                     {/* Header */}
@@ -4733,37 +4709,7 @@ export default function Home() {
                       style={reportPageStyle("10.5px", "1.35")}
                     >
                       {renderWatermark(pageNum)}
-
-                      {data.dischargeSummaryStamps.map(
-                        (stamp) =>
-                          stamp.image && stamp.pages.includes(pageNum) && (
-                            <div
-                              key={stamp.id}
-                              className="absolute pointer-events-none z-20"
-                              style={{
-                                left: `${stamp.x}%`,
-                                top: `${stamp.y}%`,
-                                transform: `translate(-50%, -50%) rotate(${stamp.rotation}deg)`,
-                                width: `${stamp.size}%`,
-                                opacity: stamp.opacity,
-                                filter:
-                                  stamp.filter === "grayscale"
-                                    ? "grayscale(100%)"
-                                    : stamp.filter === "sepia"
-                                      ? "sepia(100%)"
-                                      : stamp.filter === "brightness"
-                                        ? "brightness(1.2)"
-                                        : "none",
-                              }}
-                            >
-                              <img
-                                src={stamp.image}
-                                alt={stamp.label}
-                                className="w-full h-full object-contain select-none"
-                              />
-                            </div>
-                          ),
-                      )}
+                      {renderDocumentStamps("discharge", pageNum)}
 
                       <div className="relative z-10">
                         {/* Header */}
@@ -4837,6 +4783,8 @@ export default function Home() {
             </div>
           )}
         </div>
+          </div>
+        )}
       </div>
 
       {/* PDF Generation Modal */}
