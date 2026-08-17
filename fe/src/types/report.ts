@@ -45,6 +45,8 @@ export interface HeaderLogo {
   id: string;
   image: string;
   size: number;
+  width?: number;
+  height?: number;
   opacity: number;
   x: number;
   y: number;
@@ -147,6 +149,10 @@ export interface ReportData {
   customPages: string[];
   logoType: "text" | "image";
   logoImage: string;
+  logoImageWidth: number;
+  logoImageHeight: number;
+  logoImageX: number;
+  logoImageY: number;
   logoTextColor: string;
   logoTextSize: number;
   logoTextWeight: number;

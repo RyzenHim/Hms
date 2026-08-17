@@ -35,6 +35,18 @@ import type {
 // Default light blue medical cross/hands emblem as a default watermark Base64 SVG
 const defaultWatermarkSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400"><path fill="%2322c55e" fill-opacity="0.12" d="M200,40 C130,40 100,100 100,160 C100,240 200,360 200,360 C200,360 300,240 300,160 C300,100 270,40 200,40 Z M200,220 C167,220 140,193 140,160 C140,127 167,100 200,100 C233,100 260,127 260,160 C260,193 233,220 200,220 Z"/></svg>`;
 
+const dateForInput = (date: string) => {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+
+  const match = date.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : "";
+};
+
+const dateForCertificate = (date: string) => {
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : date;
+};
+
 const defaultReportData: ReportData = {
   hospitalName: "Orchid Medical Centre",
   hospitalSub: "Orchid Medical Centre Pvt. Ltd.",
@@ -159,6 +171,10 @@ const defaultReportData: ReportData = {
   // Logo & Watermark settings
   logoType: "text",
   logoImage: "",
+  logoImageWidth: 100,
+  logoImageHeight: 100,
+  logoImageX: 50,
+  logoImageY: 50,
   logoTextColor: "#0f172a",
   logoTextSize: 24,
   logoTextWeight: 800,
@@ -260,6 +276,7 @@ const defaultReportData: ReportData = {
 
 export default function Home() {
   const [workspace, setWorkspace] = useState<"editor" | "patients">("editor");
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [docType, setDocType] = useState<
     "diagnostic" | "discharge" | "fitness"
   >("discharge");
@@ -454,7 +471,7 @@ export default function Home() {
 
   const handleHeaderLogoChange = (
     id: string,
-    key: "x" | "y" | "size" | "opacity",
+    key: "x" | "y" | "size" | "width" | "height" | "opacity",
     value: number,
   ) => {
     const updated = data.headerLogos.map((logo) =>
@@ -470,6 +487,8 @@ export default function Home() {
         id: `header_logo_${Date.now()}`,
         image: "",
         size: 100,
+        width: 100,
+        height: 100,
         opacity: 0.8,
         x: 50,
         y: 50,
@@ -720,6 +739,10 @@ export default function Home() {
         ...data,
         logoType: "text",
         logoImage: "",
+        logoImageWidth: defaultReportData.logoImageWidth,
+        logoImageHeight: defaultReportData.logoImageHeight,
+        logoImageX: defaultReportData.logoImageX,
+        logoImageY: defaultReportData.logoImageY,
         logoTextColor: defaultReportData.logoTextColor,
         logoTextSize: defaultReportData.logoTextSize,
         logoTextWeight: defaultReportData.logoTextWeight,
@@ -1249,7 +1272,7 @@ export default function Home() {
     return (
       <div
         className="relative flex items-center justify-start min-w-0 w-full"
-        style={{ minHeight: compact ? "32px" : "44px" }}
+        style={{ minHeight: compact ? "32px" : "44px", overflow: "visible" }}
       >
         {data.headerLogos.map(
           (logo) =>
@@ -1260,12 +1283,12 @@ export default function Home() {
                 style={{
                   left: `${logo.x}%`,
                   top: `${logo.y}%`,
-                  width: `${Math.max(logo.size, 100)}%`,
-                  height: "100%",
+                  width: `${logo.width ?? 100}%`,
+                  height: `${logo.height ?? 100}%`,
                   maxWidth: "none",
                   maxHeight: "100%",
                   opacity: logo.opacity,
-                  transform: "translate(-50%, -50%)",
+                  transform: `translate(-50%, -50%) scale(${logo.size / 100})`,
                   zIndex: 20,
                 }}
               >
@@ -1279,13 +1302,22 @@ export default function Home() {
         )}
 
         {data.logoType === "image" && data.logoImage ? (
-          <img
-            src={data.logoImage}
-            alt="Hospital Logo"
-            className={
-              compact ? "max-h-10 object-contain" : "max-h-12 object-contain"
-            }
-          />
+          <div
+            className="absolute pointer-events-none z-10"
+            style={{
+              left: `${data.logoImageX}%`,
+              top: `${data.logoImageY}%`,
+              width: `${data.logoImageWidth}%`,
+              height: `${data.logoImageHeight}%`,
+              transform: "translate(-50%, -50%)",
+            }}
+          >
+            <img
+              src={data.logoImage}
+              alt="Hospital Logo"
+              className="w-full h-full object-contain"
+            />
+          </div>
         ) : (
           <div className="flex items-center min-w-0">
             <span
@@ -1496,7 +1528,7 @@ export default function Home() {
         )}
 
         {data.logoType === "image" && (
-          <div className="space-y-2">
+          <div className="space-y-3">
             <label className="block text-[10px] text-slate-500 font-semibold">
               Hospital Logo Image
             </label>
@@ -1515,6 +1547,49 @@ export default function Home() {
                 />
               </div>
             )}
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[10px] text-slate-400">
+                Use any values for size or position; values above 100% can extend across the page.
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setData((previous) => ({
+                    ...previous,
+                    logoImageWidth: 100,
+                    logoImageHeight: 100,
+                    logoImageX: 50,
+                    logoImageY: 50,
+                  }))
+                }
+                className="shrink-0 ml-2 px-2 py-1 text-[10px] font-semibold rounded bg-slate-800 hover:bg-slate-700 text-slate-200"
+              >
+                Full Width
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-300">
+              {[
+                ["Width (%)", "logoImageWidth"],
+                ["Height (%)", "logoImageHeight"],
+                ["X Position (%)", "logoImageX"],
+                ["Y Position (%)", "logoImageY"],
+              ].map(([label, field]) => (
+                <label key={field} className="space-y-1">
+                  <span>{label}</span>
+                  <input
+                    type="number"
+                    value={data[field as "logoImageWidth" | "logoImageHeight" | "logoImageX" | "logoImageY"]}
+                    onChange={(event) =>
+                      handleInputChange(
+                        field as "logoImageWidth" | "logoImageHeight" | "logoImageX" | "logoImageY",
+                        Number(event.target.value),
+                      )
+                    }
+                    className="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                  />
+                </label>
+              ))}
+            </div>
           </div>
         )}
 
@@ -1569,7 +1644,7 @@ export default function Home() {
 
               <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-300">
                 <div className="col-span-2">
-                  <label>Width / Size ({logo.size}%)</label>
+                  <label>Scale ({logo.size}%)</label>
                   <input
                     type="range"
                     min="1"
@@ -1604,37 +1679,55 @@ export default function Home() {
                   />
                 </div>
                 <div>
-                  <label>X Axis ({logo.x}%)</label>
+                  <label>Width (% of header)</label>
                   <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={logo.x}
+                    type="number"
+                    value={logo.width ?? 100}
                     onChange={(e) =>
                       handleHeaderLogoChange(
                         logo.id,
-                        "x",
+                        "width",
                         Number(e.target.value),
                       )
                     }
-                    className="w-full accent-emerald-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
                 <div>
-                  <label>Y Axis ({logo.y}%)</label>
+                  <label>Height (% of header)</label>
                   <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={logo.y}
+                    type="number"
+                    value={logo.height ?? 100}
                     onChange={(e) =>
                       handleHeaderLogoChange(
                         logo.id,
-                        "y",
+                        "height",
                         Number(e.target.value),
                       )
                     }
-                    className="w-full accent-emerald-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label>X Position (%)</label>
+                  <input
+                    type="number"
+                    value={logo.x}
+                    onChange={(e) =>
+                      handleHeaderLogoChange(logo.id, "x", Number(e.target.value))
+                    }
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label>Y Position (%)</label>
+                  <input
+                    type="number"
+                    value={logo.y}
+                    onChange={(e) =>
+                      handleHeaderLogoChange(logo.id, "y", Number(e.target.value))
+                    }
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
               </div>
@@ -2416,6 +2509,8 @@ export default function Home() {
       <div className="flex-1 flex min-h-0 overflow-hidden">
         <AppSidebar
           workspace={workspace}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapsed={() => setIsSidebarCollapsed((collapsed) => !collapsed)}
           onOpenEditor={() => setWorkspace("editor")}
           onOpenPatients={openPatientManagement}
         />
@@ -3102,13 +3197,16 @@ export default function Home() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Certificate Date
+                      Date of Issue
                     </label>
                     <input
-                      type="text"
-                      value={data.fitDate}
+                      type="date"
+                      value={dateForInput(data.fitDate)}
                       onChange={(e) =>
-                        handleInputChange("fitDate", e.target.value)
+                        handleInputChange(
+                          "fitDate",
+                          dateForCertificate(e.target.value),
+                        )
                       }
                       className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
                     />
@@ -3247,7 +3345,7 @@ export default function Home() {
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
                   />
                 </div>
-                <div className="pt-4 border-t border-slate-800">
+                <div className="pt-4 border-t border-slate-800 space-y-4">
                   <label className="block text-xs font-semibold text-slate-400 mb-1">
                     Report Saved By
                   </label>
@@ -3260,6 +3358,20 @@ export default function Home() {
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
                     placeholder="Name (date and time)"
                   />
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">
+                      Print Date
+                    </label>
+                    <input
+                      type="text"
+                      value={data.printDateTime}
+                      onChange={(e) =>
+                        handleInputChange("printDateTime", e.target.value)
+                      }
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                      placeholder="DD/MM/YYYY HH:MM:SS"
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -3335,6 +3447,22 @@ export default function Home() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">
+                      Follow-Up Visit Date
+                    </label>
+                    <input
+                      type="date"
+                      value={dateForInput(data.dischargeFollowUpVisitDate)}
+                      onChange={(e) =>
+                        handleInputChange(
+                          "dischargeFollowUpVisitDate",
+                          dateForCertificate(e.target.value),
+                        )
+                      }
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                    />
+                  </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-400 mb-1">
                       Prepared By
@@ -4055,7 +4183,9 @@ export default function Home() {
                   </div>
                   <div className="border-t border-gray-300 mt-5 pt-4">
                     <div className="flex justify-between text-[8px] text-gray-400">
-                      <p>Print Date: {data.printDateTime}</p>
+                      {data.printDateTime.trim() && (
+                        <p>Print Date: {data.printDateTime}</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -4563,24 +4693,8 @@ export default function Home() {
                   <div className="relative z-10">
                     {/* Header */}
                     <div className="flex justify-between items-start border-b border-gray-300 pb-2 mb-3">
-                      <div className="text-2xl font-black text-gray-800 flex items-center">
-                        {data.logoType === "image" && data.logoImage ? (
-                          <img
-                            src={data.logoImage}
-                            alt="Hospital Logo"
-                            className="max-h-10 object-contain"
-                          />
-                        ) : (
-                          <>
-                            <span>{data.hospitalName.split(" ")[0]}</span>
-                            <span className="text-gray-600 ml-1 text-sm font-normal border-l border-gray-400 pl-2 block">
-                              {data.hospitalName.split(" ").slice(1).join(" ")}
-                              <span className="block text-[7px] text-gray-400 uppercase tracking-widest font-bold">
-                                {data.hospitalTagline}
-                              </span>
-                            </span>
-                          </>
-                        )}
+                      <div className="relative min-w-0 flex-1">
+                        {renderHeaderBrand(true)}
                       </div>
                       <div className="text-[8px] text-right text-gray-600 leading-tight">
                         <p className="font-bold text-gray-700">
@@ -4717,30 +4831,8 @@ export default function Home() {
                           className="flex justify-between items-start border-b pb-2 mb-3"
                           style={{ borderColor: data.reportTheme.border }}
                         >
-                          <div
-                            className="text-2xl font-black flex items-center"
-                            style={{ color: data.reportTheme.heading }}
-                          >
-                            {data.logoType === "image" && data.logoImage ? (
-                              <img
-                                src={data.logoImage}
-                                alt="Hospital Logo"
-                                className="max-h-10 object-contain"
-                              />
-                            ) : (
-                              <>
-                                <span>{data.hospitalName.split(" ")[0]}</span>
-                                <span className="text-gray-600 ml-1 text-sm font-normal border-l border-gray-400 pl-2 block">
-                                  {data.hospitalName
-                                    .split(" ")
-                                    .slice(1)
-                                    .join(" ")}
-                                  <span className="block text-[7px] text-gray-400 uppercase tracking-widest font-bold">
-                                    {data.hospitalTagline}
-                                  </span>
-                                </span>
-                              </>
-                            )}
+                          <div className="relative min-w-0 flex-1">
+                            {renderHeaderBrand(true)}
                           </div>
                           <div className="text-[8px] text-right text-gray-600 leading-tight">
                             <p className="font-bold text-gray-700">
