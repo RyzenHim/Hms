@@ -19,7 +19,8 @@ export const calculateAge = (dobString: string, admitDateString: string): number
   }
 };
 
-// Image data is intentionally excluded from API payloads and database records.
+// Image data is excluded from the general report snapshot. Stamp images are
+// sent separately by patient-api and stored in the linked stamp collection.
 export const stripImageFields = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(stripImageFields);
   if (value && typeof value === "object") {

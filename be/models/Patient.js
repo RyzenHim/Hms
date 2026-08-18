@@ -15,6 +15,13 @@ const patientSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    // Keep this discharge-summary field at the document level too. Besides the
+    // complete `patientDetails` snapshot below, this makes the consultant
+    // value explicitly persisted and easy to query independently.
+    primaryConsultant: {
+      type: String,
+      default: "",
+    },
     // Keeps every non-image field from the report form without discarding
     // document-specific settings as the form evolves.
     patientDetails: {
@@ -26,6 +33,13 @@ const patientSchema = new mongoose.Schema(
     hospitalDetails: {
       type: mongoose.Schema.Types.Mixed,
       required: true,
+    },
+    // The full configuration lives in its own collection so stamp images and
+    // editable designer data are restored without bloating patientDetails.
+    stampConfiguration: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "StampConfiguration",
+      default: null,
     },
   },
   { timestamps: true },

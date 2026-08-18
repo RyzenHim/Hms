@@ -30,6 +30,7 @@ import type {
   ReportTheme,
   Stamp,
   StampDesigner,
+  NameStampDesigner,
 } from "../types/report";
 
 // Default light blue medical cross/hands emblem as a default watermark Base64 SVG
@@ -92,6 +93,7 @@ const defaultReportData: ReportData = {
   urinaryBladder:
     "Normal in outline & distension. Lumen appears clear. Wall thickness normal. Perivesical fat plane is intact.",
   prostate: "Appears normal.",
+  impressionHeading: "IMPRESSION: PLAIN CT OF KUB REVEALS:-",
   impression:
     "MULTIPLE SMALL BILATERAL RENAL CALCULI / CONCRETIONS WITH NO OBVIOUS BACK PRESSURE CHANGES IN THIS SCAN.",
   suggestion: "Clinico-Pathological Correlation.",
@@ -294,6 +296,30 @@ export default function Home() {
     edgeSoftness: 0,
     fadeSide: "none",
     fadeStrength: 0.5,
+    inkSpill: 2,
+    sizeMismatch: 1,
+    textOpacityVariation: 0.12,
+    borderEnabled: true,
+    borderWidth: 1,
+  });
+  const [nameStampDesigner, setNameStampDesigner] = useState<NameStampDesigner>({
+    doctorName: "Dr. Arvind Kumar Prabhat",
+    department: "Consultant Urology",
+    degree: "MBBS, MS, DNB, MCh",
+    hospitalName: "Orchid Medical Centre",
+    color: "#1e3a8a",
+    shape: "rectangle",
+    inkOpacity: 0.82,
+    distress: 3,
+    inkSpread: 0.5,
+    edgeSoftness: 0,
+    fadeSide: "none",
+    fadeStrength: 0.5,
+    inkSpill: 2,
+    sizeMismatch: 1,
+    textOpacityVariation: 0.12,
+    borderEnabled: true,
+    borderWidth: 1,
   });
   const [activeTab, setActiveTab] = useState<
     | "hospital"
@@ -650,6 +676,7 @@ export default function Home() {
         ureters: "",
         urinaryBladder: "",
         prostate: "",
+        impressionHeading: "",
         impression: "",
         suggestion: "",
         reportSavedBy: "",
@@ -812,7 +839,7 @@ export default function Home() {
 
   const toggleStampDocumentType = (
     stampId: string,
-    documentType: "discharge" | "fitness",
+    documentType: "diagnostic" | "discharge" | "fitness",
   ) => {
     const updated = data.dischargeSummaryStamps.map((stamp) => {
       if (stamp.id !== stampId) return stamp;
@@ -894,11 +921,18 @@ export default function Home() {
       edgeSoftness,
       fadeSide,
       fadeStrength,
+      inkSpill = 0,
+      sizeMismatch = 0,
+      textOpacityVariation = 0,
+      borderEnabled = true,
+      borderWidth = 1,
     } = design;
     const isRound = shape === "round";
-    const frame = isRound
-      ? '<circle cx="300" cy="300" r="255" fill="none" stroke="currentColor" stroke-width="18"/><circle cx="300" cy="300" r="220" fill="none" stroke="currentColor" stroke-width="5" stroke-dasharray="7 5"/>'
-      : '<rect x="42" y="120" width="516" height="360" rx="18" fill="none" stroke="currentColor" stroke-width="18"/><rect x="62" y="140" width="476" height="320" rx="10" fill="none" stroke="currentColor" stroke-width="5" stroke-dasharray="7 5"/>';
+    const frame = !borderEnabled
+      ? ""
+      : isRound
+        ? `<circle cx="300" cy="300" r="255" fill="none" stroke="currentColor" stroke-width="${18 * borderWidth}"/><circle cx="300" cy="300" r="220" fill="none" stroke="currentColor" stroke-width="${5 * borderWidth}" stroke-dasharray="7 5"/>`
+        : `<rect x="42" y="120" width="516" height="360" rx="18" fill="none" stroke="currentColor" stroke-width="${18 * borderWidth}"/><rect x="62" y="140" width="476" height="320" rx="10" fill="none" stroke="currentColor" stroke-width="${5 * borderWidth}" stroke-dasharray="7 5"/>`;
     const titleSize = mainText.length > 12 ? 48 : 64;
     const textY = isRound ? 315 : 320;
     const fadedOpacity = Math.max(0, 1 - fadeStrength).toFixed(2);
@@ -926,13 +960,14 @@ export default function Home() {
         ${fadeMask}
         ${isRound ? '<path id="topArc" d="M 105,300 A 195,195 0 0,1 495,300" fill="none"/><path id="bottomArc" d="M 105,300 A 195,195 0 0,0 495,300" fill="none"/>' : ""}
       </defs>
-      <g color="${color}" opacity="${inkOpacity}" filter="url(#rough)"${fadeSide === "none" ? "" : ' mask="url(#edgeFade)"'}>
-        ${frame}
+      <g color="${color}" opacity="${inkOpacity}"${fadeSide === "none" ? "" : ' mask="url(#edgeFade)"'}>
+        <g filter="url(#rough)" transform="rotate(${sizeMismatch} 300 300) scale(${1 + sizeMismatch / 250}) translate(${sizeMismatch * -2} ${sizeMismatch})">${frame}</g>
         <path d="M ${isRound ? "170 345 L 430 345" : "95 360 L 505 360"}" stroke="currentColor" stroke-width="5"/>
         <path d="M ${isRound ? "185 365 L 415 365" : "115 385 L 485 385"}" stroke="currentColor" stroke-width="2" stroke-dasharray="4 5"/>
-        ${isRound ? `<text fill="currentColor" font-family="Georgia, serif" font-size="22" font-weight="700" letter-spacing="2"><textPath href="#topArc" startOffset="50%" text-anchor="middle">${escapeStampText(topText)}</textPath></text><text fill="currentColor" font-family="Georgia, serif" font-size="18" font-weight="700" letter-spacing="1.5"><textPath href="#bottomArc" startOffset="50%" text-anchor="middle">${escapeStampText(bottomText)}</textPath></text>` : `<text x="300" y="195" fill="currentColor" text-anchor="middle" font-family="Georgia, serif" font-size="22" font-weight="700" letter-spacing="2">${escapeStampText(topText)}</text><text x="300" y="438" fill="currentColor" text-anchor="middle" font-family="Georgia, serif" font-size="18" font-weight="700" letter-spacing="1.5">${escapeStampText(bottomText)}</text>`}
-        <text x="300" y="${textY}" fill="currentColor" text-anchor="middle" font-family="Georgia, serif" font-size="${titleSize}" font-weight="900" letter-spacing="2">${escapeStampText(mainText)}</text>
+        ${isRound ? `<text fill="currentColor" opacity="${1 - textOpacityVariation / 2}" font-family="Georgia, serif" font-size="22" font-weight="700" letter-spacing="2"><textPath href="#topArc" startOffset="50%" text-anchor="middle">${escapeStampText(topText)}</textPath></text><text fill="currentColor" opacity="${1 - textOpacityVariation}" font-family="Georgia, serif" font-size="18" font-weight="700" letter-spacing="1.5"><textPath href="#bottomArc" startOffset="50%" text-anchor="middle">${escapeStampText(bottomText)}</textPath></text>` : `<text x="300" y="195" fill="currentColor" opacity="${1 - textOpacityVariation / 2}" text-anchor="middle" font-family="Georgia, serif" font-size="22" font-weight="700" letter-spacing="2">${escapeStampText(topText)}</text><text x="300" y="438" fill="currentColor" opacity="${1 - textOpacityVariation}" text-anchor="middle" font-family="Georgia, serif" font-size="18" font-weight="700" letter-spacing="1.5">${escapeStampText(bottomText)}</text>`}
+        <text x="300" y="${textY}" fill="currentColor" opacity="${1 - textOpacityVariation * 0.35}" text-anchor="middle" font-family="Georgia, serif" font-size="${titleSize}" font-weight="900" letter-spacing="2">${escapeStampText(mainText)}</text>
         <circle cx="300" cy="278" r="5" fill="currentColor"/><circle cx="300" cy="385" r="5" fill="currentColor"/>
+        ${Array.from({ length: Math.round(inkSpill) }, (_, index) => `<circle cx="${80 + ((index * 137) % 440)}" cy="${110 + ((index * 83) % 390)}" r="${1.5 + (index % 3)}" fill="currentColor" opacity="${0.35 + (index % 3) * 0.12}"/>`).join("")}
       </g>
     </svg>`;
   };
@@ -971,6 +1006,102 @@ export default function Home() {
       if (stamp.id !== stampId || !stamp.designer) return stamp;
       const designer = { ...stamp.designer, [key]: value };
       return { ...stamp, designer, image: stampSvgDataUrl(designer) };
+    });
+    handleInputChange("dischargeSummaryStamps", updated);
+  };
+
+  const createNameStampSvg = (design: NameStampDesigner = nameStampDesigner) => {
+    const { doctorName, department, degree, hospitalName, color, shape, inkOpacity, distress, inkSpread, edgeSoftness, fadeSide, fadeStrength, inkSpill = 0, sizeMismatch = 0, textOpacityVariation = 0, borderEnabled = true, borderWidth = 1 } = design;
+    const isRound = shape === "round";
+    const unevenText = Math.max(0, Math.min(1, textOpacityVariation));
+    const fadeNoiseCoefficient = (unevenText / 3).toFixed(4);
+    const textureSeed = Array.from(`${doctorName}|${department}|${degree}|${hospitalName}`).reduce(
+      (seed, character, index) => (seed + character.charCodeAt(0) * (index + 1)) % 89,
+      11,
+    );
+    const fadedOpacity = Math.max(0, 1 - fadeStrength).toFixed(2);
+    const fadeGradient = fadeSide === "top"
+      ? `<linearGradient id="nameFade" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="white" stop-opacity="${fadedOpacity}"/><stop offset="42%" stop-color="white"/></linearGradient>`
+      : fadeSide === "bottom"
+        ? `<linearGradient id="nameFade" x1="0" y1="0" x2="0" y2="1"><stop offset="58%" stop-color="white"/><stop offset="100%" stop-color="white" stop-opacity="${fadedOpacity}"/></linearGradient>`
+        : fadeSide === "left"
+          ? `<linearGradient id="nameFade" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="white" stop-opacity="${fadedOpacity}"/><stop offset="42%" stop-color="white"/></linearGradient>`
+          : fadeSide === "right"
+            ? `<linearGradient id="nameFade" x1="0" y1="0" x2="1" y2="0"><stop offset="58%" stop-color="white"/><stop offset="100%" stop-color="white" stop-opacity="${fadedOpacity}"/></linearGradient>`
+            : "";
+    const frame = !borderEnabled
+      ? ""
+      : isRound
+        ? `<circle cx="300" cy="300" r="255" fill="none" stroke="currentColor" stroke-width="${16 * borderWidth}"/><circle cx="300" cy="300" r="222" fill="none" stroke="currentColor" stroke-width="${4 * borderWidth}" stroke-dasharray="7 5"/>`
+        : `<rect x="30" y="130" width="540" height="340" rx="15" fill="none" stroke="currentColor" stroke-width="${16 * borderWidth}"/><rect x="50" y="150" width="500" height="300" rx="8" fill="none" stroke="currentColor" stroke-width="${4 * borderWidth}" stroke-dasharray="7 5"/>`;
+    const textY = isRound ? { hospital: 190, name: 270, department: 330, degree: 385 } : { hospital: 205, name: 275, department: 335, degree: 400 };
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
+      <defs>
+        <filter id="nameRough" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.035 0.11" numOctaves="3" seed="${textureSeed}" result="roughNoise"/>
+          <feMorphology in="SourceGraphic" operator="dilate" radius="${inkSpread}" result="spread"/>
+          <feGaussianBlur in="spread" stdDeviation="${edgeSoftness}" result="softened"/>
+          <feDisplacementMap in="softened" in2="roughNoise" scale="${distress}" xChannelSelector="R" yChannelSelector="G"/>
+        </filter>
+        <filter id="nameTextFadeTexture" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.018 0.14" numOctaves="4" seed="${textureSeed + 31}" result="fadeNoise"/>
+          <feColorMatrix in="fadeNoise" type="matrix" values="
+            0 0 0 0 1
+            0 0 0 0 1
+            0 0 0 0 1
+            -${fadeNoiseCoefficient} -${fadeNoiseCoefficient} -${fadeNoiseCoefficient} 0 1
+          "/>
+        </filter>
+        <mask id="nameTextFadeMask" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="0" y="0" width="600" height="600" style="mask-type:alpha">
+          <rect x="0" y="0" width="600" height="600" fill="white" filter="url(#nameTextFadeTexture)"/>
+        </mask>
+        ${fadeGradient}
+        ${fadeSide === "none" ? "" : '<mask id="nameFadeMask"><rect width="600" height="600" fill="url(#nameFade)"/></mask>'}
+      </defs>
+      <g color="${color}" opacity="${inkOpacity}"${fadeSide === "none" ? "" : ' mask="url(#nameFadeMask)"'}>
+        <g filter="url(#nameRough)" transform="rotate(${sizeMismatch} 300 300) scale(${1 + sizeMismatch / 250}) translate(${sizeMismatch * -2} ${sizeMismatch})">${frame}</g>
+        <g filter="url(#nameRough)">
+          <path d="M 120 225 L 480 225" stroke="currentColor" stroke-width="3"/>
+          <path d="M 120 355 L 480 355" stroke="currentColor" stroke-width="3"/>
+        </g>
+        <g filter="url(#nameRough)" mask="url(#nameTextFadeMask)">
+          <text x="300" y="${textY.hospital}" fill="currentColor" opacity="${1 - unevenText * 0.12}" text-anchor="middle" font-family="Georgia, serif" font-size="20" font-weight="700" letter-spacing="1.5">${escapeStampText(hospitalName)}</text>
+          <text x="300" y="${textY.name}" fill="currentColor" opacity="${1 - unevenText * 0.06}" text-anchor="middle" font-family="Georgia, serif" font-size="${doctorName.length > 26 ? 30 : 36}" font-weight="900">${escapeStampText(doctorName)}</text>
+          <text x="300" y="${textY.department}" fill="currentColor" opacity="${1 - unevenText * 0.18}" text-anchor="middle" font-family="Georgia, serif" font-size="22" font-weight="700">${escapeStampText(department)}</text>
+          <text x="300" y="${textY.degree}" fill="currentColor" opacity="${1 - unevenText * 0.14}" text-anchor="middle" font-family="Georgia, serif" font-size="18" font-weight="700">${escapeStampText(degree)}</text>
+        </g>
+        ${Array.from({ length: Math.round(inkSpill) }, (_, index) => `<circle cx="${80 + ((index * 137) % 440)}" cy="${110 + ((index * 83) % 390)}" r="${1.5 + (index % 3)}" fill="currentColor" opacity="${0.35 + (index % 3) * 0.12}"/>`).join("")}
+      </g>
+    </svg>`;
+  };
+
+  const nameStampSvgDataUrl = (design: NameStampDesigner = nameStampDesigner) =>
+    `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(createNameStampSvg(design))))}`;
+
+  const useNameStamp = () => {
+    const newStamp: Stamp = {
+      id: `name_stamp_${Date.now()}`,
+      label: nameStampDesigner.doctorName || "Doctor Name Stamp",
+      image: nameStampSvgDataUrl(nameStampDesigner),
+      size: 26,
+      opacity: 1,
+      x: 78,
+      y: 82,
+      rotation: -4,
+      filter: "none",
+      isDefault: false,
+      pages: [1],
+      documentTypes: ["diagnostic", "discharge", "fitness"],
+      nameDesigner: { ...nameStampDesigner },
+    };
+    handleInputChange("dischargeSummaryStamps", [...data.dischargeSummaryStamps, newStamp]);
+  };
+
+  const handleNameStampChange = <K extends keyof NameStampDesigner>(stampId: string, key: K, value: NameStampDesigner[K]) => {
+    const updated = data.dischargeSummaryStamps.map((stamp) => {
+      if (stamp.id !== stampId || !stamp.nameDesigner) return stamp;
+      const nameDesigner = { ...stamp.nameDesigner, [key]: value };
+      return { ...stamp, label: nameDesigner.doctorName || "Doctor Name Stamp", nameDesigner, image: nameStampSvgDataUrl(nameDesigner) };
     });
     handleInputChange("dischargeSummaryStamps", updated);
   };
@@ -1222,7 +1353,7 @@ export default function Home() {
         : 3 + data.customPages.length;
 
   const renderDocumentStamps = (
-    documentType: "discharge" | "fitness",
+    documentType: "diagnostic" | "discharge" | "fitness",
     page: number,
   ) =>
     data.dischargeSummaryStamps.map((stamp) => {
@@ -1232,7 +1363,8 @@ export default function Home() {
       );
       const appliesToPage = stamp.pages.includes(page);
 
-      if (!stamp.image || !appliesToDocument || !appliesToPage) return null;
+      const stampImage = stamp.image || (stamp.nameDesigner ? nameStampSvgDataUrl(stamp.nameDesigner) : "");
+      if (!stampImage || !appliesToDocument || !appliesToPage) return null;
 
       return (
         <div
@@ -1255,7 +1387,7 @@ export default function Home() {
           }}
         >
           <img
-            src={stamp.image}
+            src={stampImage}
             alt={stamp.label}
             className="w-full h-full object-contain select-none"
           />
@@ -2108,11 +2240,45 @@ export default function Home() {
               <input type="range" min="0.1" max="1" step="0.05" value={stampDesigner.fadeStrength} onChange={(e) => setStampDesigner({ ...stampDesigner, fadeStrength: parseFloat(e.target.value) })} className="w-full accent-emerald-500" />
             </div>
           </div>
+          <div className="grid grid-cols-3 gap-3 text-[10px] text-slate-400">
+            <div>Ink spill ({stampDesigner.inkSpill})<input type="range" min="0" max="16" value={stampDesigner.inkSpill} onChange={(e) => setStampDesigner({ ...stampDesigner, inkSpill: parseInt(e.target.value) })} className="w-full accent-emerald-500" /></div>
+            <div>Border <input type="checkbox" checked={stampDesigner.borderEnabled} onChange={(e) => setStampDesigner({ ...stampDesigner, borderEnabled: e.target.checked })} className="ml-1 accent-emerald-500" /><input type="range" min="0.5" max="2.5" step="0.1" value={stampDesigner.borderWidth} onChange={(e) => setStampDesigner({ ...stampDesigner, borderWidth: parseFloat(e.target.value) })} className="w-full accent-emerald-500" /></div>
+            <div>Uneven text ({Math.round(stampDesigner.textOpacityVariation * 100)}%)<input type="range" min="0" max="0.6" step="0.05" value={stampDesigner.textOpacityVariation} onChange={(e) => setStampDesigner({ ...stampDesigner, textOpacityVariation: parseFloat(e.target.value) })} className="w-full accent-emerald-500" /></div>
+          </div>
           <div className="flex flex-wrap gap-2 pt-1">
             <button onClick={useDesignedStamp} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400 px-3 py-1.5 rounded text-xs font-bold">Use in stamp area</button>
             <button onClick={() => downloadDesignedStamp("png")} className="bg-slate-800 text-slate-200 hover:bg-slate-700 px-3 py-1.5 rounded text-xs font-semibold">Save PNG</button>
             <button onClick={() => downloadDesignedStamp("svg")} className="bg-slate-800 text-slate-200 hover:bg-slate-700 px-3 py-1.5 rounded text-xs font-semibold">Save SVG</button>
           </div>
+        </div>
+
+        <div className="bg-slate-900 p-3.5 rounded-lg border border-blue-900/60 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h5 className="text-xs font-bold text-blue-300">Doctor Name Stamp</h5>
+              <p className="text-[10px] text-slate-500">A realistic ink-style doctor stamp. It can be placed anywhere on every diagnostic, discharge, or fitness page.</p>
+            </div>
+            <div className="w-20 h-20 rounded bg-white/95 p-1 shrink-0"><img src={nameStampSvgDataUrl()} alt="Doctor name stamp preview" className="w-full h-full object-contain" /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <input value={nameStampDesigner.doctorName} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, doctorName: e.target.value })} placeholder="Doctor name" className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100 font-semibold" />
+            <input value={nameStampDesigner.department} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, department: e.target.value })} placeholder="Department" className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100" />
+            <input value={nameStampDesigner.degree} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, degree: e.target.value })} placeholder="Degree / qualification" className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100" />
+            <input value={nameStampDesigner.hospitalName} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, hospitalName: e.target.value })} placeholder="Hospital name" className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100" />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div><label className="block text-[10px] text-slate-500 font-semibold mb-1">Ink color</label><input type="color" value={nameStampDesigner.color} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, color: e.target.value })} className="w-full h-8 rounded border border-slate-700 bg-slate-800" /></div>
+            <div><label className="block text-[10px] text-slate-500 font-semibold mb-1">Shape</label><select value={nameStampDesigner.shape} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, shape: e.target.value as NameStampDesigner["shape"] })} className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"><option value="rectangle">Rectangle</option><option value="round">Round</option></select></div>
+            <div><label className="block text-[10px] text-slate-500 font-semibold mb-1">Ink ({Math.round(nameStampDesigner.inkOpacity * 100)}%)</label><input type="range" min="0.35" max="1" step="0.05" value={nameStampDesigner.inkOpacity} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, inkOpacity: parseFloat(e.target.value) })} className="w-full accent-blue-500" /></div>
+          </div>
+          <div className="grid grid-cols-3 gap-3 text-[10px] text-slate-400">
+            <div>Distress ({nameStampDesigner.distress})<input type="range" min="0" max="12" value={nameStampDesigner.distress} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, distress: parseInt(e.target.value) })} className="w-full accent-blue-500" /></div>
+            <div>Ink spread ({nameStampDesigner.inkSpread.toFixed(1)})<input type="range" min="0" max="3" step="0.1" value={nameStampDesigner.inkSpread} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, inkSpread: parseFloat(e.target.value) })} className="w-full accent-blue-500" /></div>
+            <div>Edge softness ({nameStampDesigner.edgeSoftness.toFixed(1)})<input type="range" min="0" max="1.5" step="0.1" value={nameStampDesigner.edgeSoftness} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, edgeSoftness: parseFloat(e.target.value) })} className="w-full accent-blue-500" /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-[10px] text-slate-400"><div>Fade ink on side<select value={nameStampDesigner.fadeSide} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, fadeSide: e.target.value as NameStampDesigner["fadeSide"] })} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"><option value="none">No fade</option><option value="top">Top</option><option value="right">Right</option><option value="bottom">Bottom</option><option value="left">Left</option></select></div><div>Fade strength ({Math.round(nameStampDesigner.fadeStrength * 100)}%)<input type="range" min="0.1" max="1" step="0.05" value={nameStampDesigner.fadeStrength} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, fadeStrength: parseFloat(e.target.value) })} className="mt-2 w-full accent-blue-500" /></div></div>
+          <div className="grid grid-cols-3 gap-3 text-[10px] text-slate-400"><div>Ink spill ({nameStampDesigner.inkSpill})<input type="range" min="0" max="16" value={nameStampDesigner.inkSpill} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, inkSpill: parseInt(e.target.value) })} className="w-full accent-blue-500" /></div><div>Border <input type="checkbox" checked={nameStampDesigner.borderEnabled} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, borderEnabled: e.target.checked })} className="ml-1 accent-blue-500" /><input type="range" min="0.5" max="2.5" step="0.1" value={nameStampDesigner.borderWidth} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, borderWidth: parseFloat(e.target.value) })} className="w-full accent-blue-500" /></div><div>Uneven text / random fade ({Math.round(nameStampDesigner.textOpacityVariation * 100)}%)<input type="range" min="0" max="1" step="0.05" value={nameStampDesigner.textOpacityVariation} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, textOpacityVariation: parseFloat(e.target.value) })} className="w-full accent-blue-500" /></div></div>
+          <button onClick={useNameStamp} className="bg-blue-500 text-white hover:bg-blue-400 px-3 py-1.5 rounded text-xs font-bold">Add doctor name stamp</button>
         </div>
 
         <div className="space-y-4">
@@ -2244,10 +2410,34 @@ export default function Home() {
                 </div>
               )}
 
+              {stamp.nameDesigner && (
+                <div className="border border-blue-900/60 bg-blue-950/10 rounded p-2.5 space-y-2.5">
+                  <div><p className="text-[10px] font-bold text-blue-300 uppercase tracking-wide">Editable doctor name stamp</p><p className="text-[10px] text-slate-500">Every change regenerates the stamp in the preview immediately.</p></div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([ ["doctorName", "Doctor name"], ["department", "Department"], ["degree", "Degree / qualification"], ["hospitalName", "Hospital name"] ] as const).map(([key, placeholder]) => <input key={key} value={stamp.nameDesigner![key]} onChange={(e) => handleNameStampChange(stamp.id, key, e.target.value)} placeholder={placeholder} className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100" />)}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-[10px] text-slate-400">
+                    <div>Ink color<input type="color" value={stamp.nameDesigner.color} onChange={(e) => handleNameStampChange(stamp.id, "color", e.target.value)} className="mt-1 w-full h-7 rounded border border-slate-700 bg-slate-800" /></div>
+                    <div>Shape<select value={stamp.nameDesigner.shape} onChange={(e) => handleNameStampChange(stamp.id, "shape", e.target.value as NameStampDesigner["shape"])} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-1 py-1 text-xs text-slate-100"><option value="rectangle">Rectangle</option><option value="round">Round</option></select></div>
+                    <div>Border<input type="checkbox" checked={stamp.nameDesigner.borderEnabled} onChange={(e) => handleNameStampChange(stamp.id, "borderEnabled", e.target.checked)} className="ml-2 accent-blue-500" /><input type="range" min="0.5" max="2.5" step="0.1" value={stamp.nameDesigner.borderWidth} onChange={(e) => handleNameStampChange(stamp.id, "borderWidth", parseFloat(e.target.value))} className="mt-1 w-full accent-blue-500" /></div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-[10px] text-slate-400">
+                    <div>Spill ({stamp.nameDesigner.inkSpill})<input type="range" min="0" max="16" value={stamp.nameDesigner.inkSpill} onChange={(e) => handleNameStampChange(stamp.id, "inkSpill", parseInt(e.target.value))} className="w-full accent-blue-500" /></div>
+                    <div>Irregularity ({stamp.nameDesigner.sizeMismatch})<input type="range" min="0" max="8" value={stamp.nameDesigner.sizeMismatch} onChange={(e) => handleNameStampChange(stamp.id, "sizeMismatch", parseInt(e.target.value))} className="w-full accent-blue-500" /></div>
+                    <div>Uneven text / random fade ({Math.round(stamp.nameDesigner.textOpacityVariation * 100)}%)<input type="range" min="0" max="1" step="0.05" value={stamp.nameDesigner.textOpacityVariation} onChange={(e) => handleNameStampChange(stamp.id, "textOpacityVariation", parseFloat(e.target.value))} className="w-full accent-blue-500" /></div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-[10px] text-slate-400">
+                    <div>Distress ({stamp.nameDesigner.distress})<input type="range" min="0" max="12" value={stamp.nameDesigner.distress} onChange={(e) => handleNameStampChange(stamp.id, "distress", parseInt(e.target.value))} className="w-full accent-blue-500" /></div>
+                    <div>Ink spread ({stamp.nameDesigner.inkSpread.toFixed(1)})<input type="range" min="0" max="3" step="0.1" value={stamp.nameDesigner.inkSpread} onChange={(e) => handleNameStampChange(stamp.id, "inkSpread", parseFloat(e.target.value))} className="w-full accent-blue-500" /></div>
+                    <div>Edge softness ({stamp.nameDesigner.edgeSoftness.toFixed(1)})<input type="range" min="0" max="1.5" step="0.1" value={stamp.nameDesigner.edgeSoftness} onChange={(e) => handleNameStampChange(stamp.id, "edgeSoftness", parseFloat(e.target.value))} className="w-full accent-blue-500" /></div>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-[10px] text-slate-500 font-semibold mb-1">Use this shared stamp in</label>
                 <div className="flex gap-1.5">
-                  {(["discharge", "fitness"] as const).map((documentType) => {
+                  {(["diagnostic", "discharge", "fitness"] as const).map((documentType) => {
                     const selected = stamp.documentTypes.includes(documentType);
                     return (
                       <button
@@ -2255,7 +2445,7 @@ export default function Home() {
                         onClick={() => toggleStampDocumentType(stamp.id, documentType)}
                         className={`px-2 py-1 rounded text-[10px] font-semibold border ${selected ? "bg-emerald-950/50 border-emerald-500 text-emerald-300" : "bg-slate-800 border-slate-700 text-slate-400"}`}
                       >
-                        {documentType === "discharge" ? "Discharge Summary" : "Fitness Certificate"}
+                        {documentType === "diagnostic" ? "Diagnostic Report" : documentType === "discharge" ? "Discharge Summary" : "Fitness Certificate"}
                       </button>
                     );
                   })}
@@ -3321,6 +3511,20 @@ export default function Home() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-400 mb-1">
+                    Impression Heading
+                  </label>
+                  <input
+                    type="text"
+                    value={data.impressionHeading}
+                    onChange={(e) =>
+                      handleInputChange("impressionHeading", e.target.value)
+                    }
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                    placeholder="e.g. IMPRESSION: PLAIN CT OF KUB REVEALS:-"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">
                     IMPRESSION
                   </label>
                   <textarea
@@ -3764,7 +3968,7 @@ export default function Home() {
             {activeTab === "footer" && (
               <div className="space-y-6">
                 {renderLogoWatermarkSettings()}
-                {(docType === "discharge" || docType === "fitness") &&
+                {(docType === "diagnostic" || docType === "discharge" || docType === "fitness") &&
                   renderDischargeSummaryStamps()}
               </div>
             )}
@@ -3957,6 +4161,7 @@ export default function Home() {
                 style={reportPageStyle("11px", "1.4")}
               >
                 {renderWatermark(1)}
+                {renderDocumentStamps("diagnostic", 1)}
 
                 <div className="relative z-10">
                   {/* Header */}
@@ -4157,12 +4362,19 @@ export default function Home() {
 
                     {data.impression && (
                       <div className="mt-5">
-                        <p className="font-bold underline uppercase">
-                          IMPRESSION: PLAIN CT OF KUB REVEALS:-
+                        <p className="font-bold underline">
+                          {data.impressionHeading}
                         </p>
                         <p className="font-bold pl-4 mt-1 uppercase">
                           - {data.impression}
                         </p>
+                      </div>
+                    )}
+
+                    {data.suggestion && (
+                      <div className="mt-5">
+                        <p className="font-bold underline">SUGGESTION:</p>
+                        <p className="pl-4 mt-1">- {data.suggestion}</p>
                       </div>
                     )}
                   </div>

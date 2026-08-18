@@ -4,6 +4,7 @@ import type { PatientListItem, ReportData } from "../types/report";
 export interface SavedPatient {
   _id: string;
   patientDetails: Partial<ReportData>;
+  stampConfiguration?: string | null;
 }
 
 type ApiResult<T> = T & { message?: string };
@@ -34,6 +35,7 @@ export const savePatient = async (
   patientDetails: ReportData,
   patientId: string | null,
 ): Promise<{ id: string; message: string }> => {
+  const { dischargeSummaryStamps, ...reportDetails } = patientDetails;
   const response = await fetch(
     patientId
       ? `${apiBaseUrl()}/api/patients/${patientId}`
@@ -41,7 +43,10 @@ export const savePatient = async (
     {
       method: patientId ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ patientDetails: stripImageFields(patientDetails) }),
+      body: JSON.stringify({
+        patientDetails: stripImageFields(reportDetails),
+        stampConfiguration: { stamps: dischargeSummaryStamps },
+      }),
     },
   );
   const result = await readResponse<{

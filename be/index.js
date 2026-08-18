@@ -2,11 +2,12 @@ require("dotenv").config();
 const mongoose = require("mongoose");
 const express = require("express");
 const Patient = require("./models/Patient");
+const StampConfiguration = require("./models/StampConfiguration");
 const app = express();
 const port = process.env.PORT || 8080;
 const db = process.env.DB;
 
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "15mb" }));
 
 // The frontend runs on a separate local port during development.
 app.use((req, res, next) => {
@@ -53,9 +54,43 @@ const getHospitalDetails = (patientDetails) =>
   );
 
 const getPatientDetailsFromRequest = (req) => {
-  const patientDetails = stripImageFields(req.body?.patientDetails);
+  const requestedPatientDetails =
+    req.body?.patientDetails && typeof req.body.patientDetails === "object"
+      ? req.body.patientDetails
+      : {};
+  const { dischargeSummaryStamps: embeddedStamps, ...reportDetails } = requestedPatientDetails;
+  const requestedStampConfiguration = req.body?.stampConfiguration;
+  const stamps = Array.isArray(requestedStampConfiguration?.stamps)
+    ? requestedStampConfiguration.stamps
+    : Array.isArray(embeddedStamps)
+      ? embeddedStamps
+      : null;
+  const patientDetails = stripImageFields(reportDetails);
   const uhid = typeof patientDetails?.uhid === "string" ? patientDetails.uhid.trim() : "";
-  return { patientDetails, uhid };
+  return { patientDetails, stamps, uhid };
+};
+
+const getPrimaryConsultant = (patientDetails) =>
+  typeof patientDetails?.primaryConsultant === "string"
+    ? patientDetails.primaryConsultant
+    : "";
+
+const savePatientStampConfiguration = async (patientId, stamps) => {
+  // A missing stamp payload means an older client is saving the patient; do
+  // not erase an already-persisted configuration in that case.
+  if (stamps === null) return null;
+
+  const stampConfiguration = await StampConfiguration.findOneAndUpdate(
+    { patient: patientId },
+    { $set: { stamps } },
+    { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },
+  );
+
+  await Patient.findByIdAndUpdate(patientId, {
+    $set: { stampConfiguration: stampConfiguration._id },
+  });
+
+  return stampConfiguration._id;
 };
 
 mongoose
@@ -81,9 +116,26 @@ app.get("/api/patients", async (_req, res) => {
 
 app.get("/api/patients/:id", async (req, res) => {
   try {
-    const patient = await Patient.findById(req.params.id).lean();
+    const patient = await Patient.findById(req.params.id)
+      .populate("stampConfiguration")
+      .lean();
     if (!patient) return res.status(404).json({ message: "Patient not found." });
-    res.json({ patient });
+
+    const stampConfiguration = patient.stampConfiguration;
+    const storedStamps = stampConfiguration
+      ? stampConfiguration.stamps
+      : patient.patientDetails?.dischargeSummaryStamps;
+
+    res.json({
+      patient: {
+        ...patient,
+        stampConfiguration: stampConfiguration?._id ?? null,
+        patientDetails: {
+          ...patient.patientDetails,
+          dischargeSummaryStamps: Array.isArray(storedStamps) ? storedStamps : [],
+        },
+      },
+    });
   } catch (error) {
     console.error("Error loading patient:", error);
     res.status(400).json({ message: "Invalid patient identifier." });
@@ -92,7 +144,7 @@ app.get("/api/patients/:id", async (req, res) => {
 
 app.post("/api/patients", async (req, res) => {
   try {
-    const { patientDetails, uhid } = getPatientDetailsFromRequest(req);
+    const { patientDetails, stamps, uhid } = getPatientDetailsFromRequest(req);
 
     if (!uhid) {
       return res.status(400).json({ message: "UHID is required to save patient details." });
@@ -103,12 +155,14 @@ app.post("/api/patients", async (req, res) => {
       {
         $set: {
           patientName: typeof patientDetails.patientName === "string" ? patientDetails.patientName.trim() : "",
+          primaryConsultant: getPrimaryConsultant(patientDetails),
           patientDetails,
           hospitalDetails: getHospitalDetails(patientDetails),
         },
       },
       { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },
     );
+    const stampConfigurationId = await savePatientStampConfiguration(patient._id, stamps);
 
     res.status(200).json({
       message: "Patient details saved successfully.",
@@ -116,6 +170,7 @@ app.post("/api/patients", async (req, res) => {
         id: patient._id,
         uhid: patient.uhid,
         patientName: patient.patientName,
+        stampConfiguration: stampConfigurationId ?? patient.stampConfiguration,
         updatedAt: patient.updatedAt,
       },
     });
@@ -127,7 +182,7 @@ app.post("/api/patients", async (req, res) => {
 
 app.put("/api/patients/:id", async (req, res) => {
   try {
-    const { patientDetails, uhid } = getPatientDetailsFromRequest(req);
+    const { patientDetails, stamps, uhid } = getPatientDetailsFromRequest(req);
     if (!uhid) {
       return res.status(400).json({ message: "UHID is required to save patient details." });
     }
@@ -138,6 +193,7 @@ app.put("/api/patients/:id", async (req, res) => {
         $set: {
           uhid,
           patientName: typeof patientDetails.patientName === "string" ? patientDetails.patientName.trim() : "",
+          primaryConsultant: getPrimaryConsultant(patientDetails),
           patientDetails,
           hospitalDetails: getHospitalDetails(patientDetails),
         },
@@ -145,8 +201,15 @@ app.put("/api/patients/:id", async (req, res) => {
       { new: true, runValidators: true },
     );
     if (!patient) return res.status(404).json({ message: "Patient not found." });
+    const stampConfigurationId = await savePatientStampConfiguration(patient._id, stamps);
 
-    res.json({ message: "Patient details updated successfully.", patient });
+    res.json({
+      message: "Patient details updated successfully.",
+      patient: {
+        ...patient.toObject(),
+        stampConfiguration: stampConfigurationId ?? patient.stampConfiguration,
+      },
+    });
   } catch (error) {
     console.error("Error updating patient details:", error);
     res.status(500).json({ message: "Unable to update patient details." });
@@ -157,6 +220,7 @@ app.delete("/api/patients/:id", async (req, res) => {
   try {
     const patient = await Patient.findByIdAndDelete(req.params.id);
     if (!patient) return res.status(404).json({ message: "Patient not found." });
+    await StampConfiguration.deleteOne({ patient: patient._id });
     res.json({ message: "Patient deleted successfully." });
   } catch (error) {
     console.error("Error deleting patient:", error);

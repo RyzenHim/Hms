@@ -23,6 +23,31 @@ export interface StampDesigner {
   edgeSoftness: number;
   fadeSide: "none" | "top" | "right" | "bottom" | "left";
   fadeStrength: number;
+  inkSpill: number;
+  sizeMismatch: number;
+  textOpacityVariation: number;
+  borderEnabled: boolean;
+  borderWidth: number;
+}
+
+export interface NameStampDesigner {
+  doctorName: string;
+  department: string;
+  degree: string;
+  hospitalName: string;
+  color: string;
+  shape: "round" | "rectangle";
+  inkOpacity: number;
+  distress: number;
+  inkSpread: number;
+  edgeSoftness: number;
+  fadeSide: "none" | "top" | "right" | "bottom" | "left";
+  fadeStrength: number;
+  inkSpill: number;
+  sizeMismatch: number;
+  textOpacityVariation: number;
+  borderEnabled: boolean;
+  borderWidth: number;
 }
 
 export interface Stamp {
@@ -37,8 +62,9 @@ export interface Stamp {
   filter: "none" | "grayscale" | "sepia" | "brightness";
   isDefault: boolean;
   pages: number[];
-  documentTypes: ("discharge" | "fitness")[];
+  documentTypes: ("diagnostic" | "discharge" | "fitness")[];
   designer?: StampDesigner;
+  nameDesigner?: NameStampDesigner;
 }
 
 export interface HeaderLogo {
@@ -100,6 +126,7 @@ export interface ReportData {
   ureters: string;
   urinaryBladder: string;
   prostate: string;
+  impressionHeading: string;
   impression: string;
   suggestion: string;
   reportSavedBy: string;
