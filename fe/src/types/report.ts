@@ -79,6 +79,19 @@ export interface HeaderLogo {
   isDefault: boolean;
 }
 
+export interface LogoSettings {
+  logoType: "text" | "image";
+  logoImage: string;
+  logoImageWidth: number;
+  logoImageHeight: number;
+  logoImageX: number;
+  logoImageY: number;
+  logoTextColor: string;
+  logoTextSize: number;
+  logoTextWeight: number;
+  headerLogos: HeaderLogo[];
+}
+
 export interface ReportTheme {
   primary: string;
   primarySoft: string;
@@ -97,6 +110,11 @@ export interface ReportData {
   hospitalPhone: string;
   hospitalWebsite: string;
   hospitalEmergency: string;
+  emergencyStripeText: string;
+  emergencyStripeBackground: string;
+  emergencyStripeTextColor: string;
+  emergencyStripeWidth: number;
+  showUhidAtTop: boolean;
   cin: string;
   hospitalTagline: string;
   dischargeFooterNote: string;
@@ -184,6 +202,10 @@ export interface ReportData {
   logoTextSize: number;
   logoTextWeight: number;
   headerLogos: HeaderLogo[];
+  documentLogoSettings: Record<
+    "diagnostic" | "discharge" | "fitness",
+    LogoSettings
+  >;
   watermarkEnabled: boolean;
   watermarkImageEnabled: boolean;
   watermarkImage: string;

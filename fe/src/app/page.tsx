@@ -24,6 +24,7 @@ import { PatientManagement } from "../components/PatientManagement";
 import { AppSidebar } from "../components/AppSidebar";
 import type {
   FindingItem,
+  LogoSettings,
   Medication,
   PatientListItem,
   ReportData,
@@ -48,6 +49,21 @@ const dateForCertificate = (date: string) => {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : date;
 };
 
+type DocumentType = "diagnostic" | "discharge" | "fitness";
+
+const createDefaultLogoSettings = (): LogoSettings => ({
+  logoType: "text",
+  logoImage: "",
+  logoImageWidth: 100,
+  logoImageHeight: 100,
+  logoImageX: 50,
+  logoImageY: 50,
+  logoTextColor: "#0f172a",
+  logoTextSize: 24,
+  logoTextWeight: 800,
+  headerLogos: [],
+});
+
 const defaultReportData: ReportData = {
   hospitalName: "Orchid Medical Centre",
   hospitalSub: "Orchid Medical Centre Pvt. Ltd.",
@@ -57,6 +73,11 @@ const defaultReportData: ReportData = {
   hospitalPhone: "911-7100-100",
   hospitalWebsite: "www.orchidmedcentre.com",
   hospitalEmergency: "911-7100-100",
+  emergencyStripeText: "Emergency Helpline : 911-7100-100",
+  emergencyStripeBackground: "#147d7e",
+  emergencyStripeTextColor: "#ffffff",
+  emergencyStripeWidth: 58,
+  showUhidAtTop: true,
   hospitalTagline: "Super Speciality Hospital",
   dischargeFooterNote:
     "NOTE: FOR BIOPSY REPORT CONTACT RECEPTION: +91-9117100100 DIET CONSULTATION BY DIETICIAN: 02:00 PM - 05:00 PM EMERGENCY HELPLINE: +91-9117100100",
@@ -181,6 +202,11 @@ const defaultReportData: ReportData = {
   logoTextSize: 24,
   logoTextWeight: 800,
   headerLogos: [],
+  documentLogoSettings: {
+    diagnostic: createDefaultLogoSettings(),
+    discharge: createDefaultLogoSettings(),
+    fitness: createDefaultLogoSettings(),
+  },
   watermarkEnabled: true,
   watermarkImageEnabled: true,
   watermarkImage: defaultWatermarkSvg,
@@ -276,6 +302,47 @@ const defaultReportData: ReportData = {
   ],
 };
 
+const legacyLogoSettingsFrom = (reportData: ReportData): LogoSettings => ({
+  logoType: reportData.logoType,
+  logoImage: reportData.logoImage,
+  logoImageWidth: reportData.logoImageWidth,
+  logoImageHeight: reportData.logoImageHeight,
+  logoImageX: reportData.logoImageX,
+  logoImageY: reportData.logoImageY,
+  logoTextColor: reportData.logoTextColor,
+  logoTextSize: reportData.logoTextSize,
+  logoTextWeight: reportData.logoTextWeight,
+  headerLogos: reportData.headerLogos,
+});
+
+const getDocumentLogoSettings = (
+  reportData: ReportData,
+  documentType: DocumentType,
+): LogoSettings =>
+  reportData.documentLogoSettings?.[documentType] ??
+  legacyLogoSettingsFrom(reportData);
+
+const normalizedDocumentLogoSettings = (
+  reportData: ReportData,
+  savedSettings?: Partial<Record<DocumentType, Partial<LogoSettings>>>,
+): ReportData["documentLogoSettings"] => {
+  const legacySettings = legacyLogoSettingsFrom(reportData);
+  const normalize = (documentType: DocumentType): LogoSettings => ({
+    ...legacySettings,
+    ...savedSettings?.[documentType],
+    logoImage: savedSettings?.[documentType]?.logoImage ?? "",
+    headerLogos:
+      savedSettings?.[documentType]?.headerLogos ??
+      legacySettings.headerLogos.map((logo) => ({ ...logo })),
+  });
+
+  return {
+    diagnostic: normalize("diagnostic"),
+    discharge: normalize("discharge"),
+    fitness: normalize("fitness"),
+  };
+};
+
 export default function Home() {
   const [workspace, setWorkspace] = useState<"editor" | "patients">("editor");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -302,25 +369,27 @@ export default function Home() {
     borderEnabled: true,
     borderWidth: 1,
   });
-  const [nameStampDesigner, setNameStampDesigner] = useState<NameStampDesigner>({
-    doctorName: "Dr. Arvind Kumar Prabhat",
-    department: "Consultant Urology",
-    degree: "MBBS, MS, DNB, MCh",
-    hospitalName: "Orchid Medical Centre",
-    color: "#1e3a8a",
-    shape: "rectangle",
-    inkOpacity: 0.82,
-    distress: 3,
-    inkSpread: 0.5,
-    edgeSoftness: 0,
-    fadeSide: "none",
-    fadeStrength: 0.5,
-    inkSpill: 2,
-    sizeMismatch: 1,
-    textOpacityVariation: 0.12,
-    borderEnabled: true,
-    borderWidth: 1,
-  });
+  const [nameStampDesigner, setNameStampDesigner] = useState<NameStampDesigner>(
+    {
+      doctorName: "Dr. Arvind Kumar Prabhat",
+      department: "Consultant Urology",
+      degree: "MBBS, MS, DNB, MCh",
+      hospitalName: "Orchid Medical Centre",
+      color: "#1e3a8a",
+      shape: "rectangle",
+      inkOpacity: 0.82,
+      distress: 3,
+      inkSpread: 0.5,
+      edgeSoftness: 0,
+      fadeSide: "none",
+      fadeStrength: 0.5,
+      inkSpill: 2,
+      sizeMismatch: 1,
+      textOpacityVariation: 0.12,
+      borderEnabled: true,
+      borderWidth: 1,
+    },
+  );
   const [activeTab, setActiveTab] = useState<
     | "hospital"
     | "patient"
@@ -333,7 +402,9 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSavingPatient, setIsSavingPatient] = useState(false);
   const [isLoadingPatients, setIsLoadingPatients] = useState(false);
-  const [deletingPatientId, setDeletingPatientId] = useState<string | null>(null);
+  const [deletingPatientId, setDeletingPatientId] = useState<string | null>(
+    null,
+  );
   const [editingPatientId, setEditingPatientId] = useState<string | null>(null);
   const [patients, setPatients] = useState<PatientListItem[]>([]);
   const [patientSearch, setPatientSearch] = useState("");
@@ -358,6 +429,7 @@ export default function Home() {
   const page2Ref = useRef<HTMLDivElement>(null);
   const page3Ref = useRef<HTMLDivElement>(null);
   const customPagesRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const nextHeaderLogoIdRef = useRef(0);
 
   const handleInputChange = <K extends keyof ReportData>(
     field: K,
@@ -366,12 +438,38 @@ export default function Home() {
     setData((prev) => ({ ...prev, [field]: value }));
   };
 
+  const activeLogoSettings = getDocumentLogoSettings(data, docType);
+
+  const handleDocumentLogoSettingChange = <K extends keyof LogoSettings>(
+    documentType: DocumentType,
+    field: K,
+    value: LogoSettings[K],
+  ) => {
+    setData((previous) => ({
+      ...previous,
+      documentLogoSettings: {
+        ...previous.documentLogoSettings,
+        [documentType]: {
+          ...getDocumentLogoSettings(previous, documentType),
+          [field]: value,
+        },
+      },
+    }));
+  };
+
+  const handleLogoSettingChange = <K extends keyof LogoSettings>(
+    field: K,
+    value: LogoSettings[K],
+  ) => handleDocumentLogoSettingChange(docType, field, value);
+
   const loadPatients = async () => {
     setIsLoadingPatients(true);
     try {
       setPatients(await listPatients());
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Unable to load patients.");
+      alert(
+        error instanceof Error ? error.message : "Unable to load patients.",
+      );
     } finally {
       setIsLoadingPatients(false);
     }
@@ -387,12 +485,24 @@ export default function Home() {
       const patient = await getPatient(patientId);
 
       // Images are deliberately not persisted; defaults keep the editor usable.
-      setData({ ...defaultReportData, ...patient.patientDetails } as ReportData);
+      const mergedData = {
+        ...defaultReportData,
+        ...patient.patientDetails,
+      } as ReportData;
+      mergedData.documentLogoSettings = normalizedDocumentLogoSettings(
+        mergedData,
+        patient.patientDetails.documentLogoSettings,
+      );
+      setData(mergedData);
       setEditingPatientId(patient._id);
       setWorkspace("editor");
       setActiveTab("patient");
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Unable to load patient details.");
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Unable to load patient details.",
+      );
     }
   };
 
@@ -406,7 +516,9 @@ export default function Home() {
       if (editingPatientId === patientId) setEditingPatientId(null);
       await loadPatients();
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Unable to delete patient.");
+      alert(
+        error instanceof Error ? error.message : "Unable to delete patient.",
+      );
     } finally {
       setDeletingPatientId(null);
     }
@@ -481,7 +593,7 @@ export default function Home() {
 
   const handleImageUpload = (
     e: React.ChangeEvent<HTMLInputElement>,
-    field: "logoImage" | "watermarkImage",
+    field: "watermarkImage",
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -495,22 +607,43 @@ export default function Home() {
     reader.readAsDataURL(file);
   };
 
+  const handleLogoImageUpload = (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const targetDocumentType = docType;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        handleDocumentLogoSettingChange(
+          targetDocumentType,
+          "logoImage",
+          event.target.result as string,
+        );
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleHeaderLogoChange = (
     id: string,
     key: "x" | "y" | "size" | "width" | "height" | "opacity",
     value: number,
   ) => {
-    const updated = data.headerLogos.map((logo) =>
+    const updated = activeLogoSettings.headerLogos.map((logo) =>
       logo.id === id ? { ...logo, [key]: value } : logo,
     );
-    handleInputChange("headerLogos", updated);
+    handleLogoSettingChange("headerLogos", updated);
   };
 
   const addHeaderLogo = () => {
-    handleInputChange("headerLogos", [
-      ...data.headerLogos,
+    nextHeaderLogoIdRef.current += 1;
+    handleLogoSettingChange("headerLogos", [
+      ...activeLogoSettings.headerLogos,
       {
-        id: `header_logo_${Date.now()}`,
+        id: `${docType}_header_logo_${nextHeaderLogoIdRef.current}`,
         image: "",
         size: 100,
         width: 100,
@@ -524,8 +657,10 @@ export default function Home() {
   };
 
   const removeHeaderLogo = (id: string) => {
-    const updated = data.headerLogos.filter((logo) => logo.id !== id);
-    handleInputChange("headerLogos", updated);
+    const updated = activeLogoSettings.headerLogos.filter(
+      (logo) => logo.id !== id,
+    );
+    handleLogoSettingChange("headerLogos", updated);
   };
 
   const handleHeaderLogoUpload = (
@@ -534,16 +669,33 @@ export default function Home() {
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const targetDocumentType = docType;
 
     const reader = new FileReader();
     reader.onload = (event) => {
       if (event.target?.result) {
-        const updated = data.headerLogos.map((logo) =>
-          logo.id === logoId
-            ? { ...logo, image: event.target?.result as string }
-            : logo,
-        );
-        handleInputChange("headerLogos", updated);
+        setData((previous) => {
+          const documentSettings = getDocumentLogoSettings(
+            previous,
+            targetDocumentType,
+          );
+          const updated = documentSettings.headerLogos.map((logo) =>
+            logo.id === logoId
+              ? { ...logo, image: event.target?.result as string }
+              : logo,
+          );
+
+          return {
+            ...previous,
+            documentLogoSettings: {
+              ...previous.documentLogoSettings,
+              [targetDocumentType]: {
+                ...documentSettings,
+                headerLogos: updated,
+              },
+            },
+          };
+        });
       }
     };
     reader.readAsDataURL(file);
@@ -774,6 +926,11 @@ export default function Home() {
         logoTextSize: defaultReportData.logoTextSize,
         logoTextWeight: defaultReportData.logoTextWeight,
         headerLogos: [],
+        documentLogoSettings: {
+          diagnostic: createDefaultLogoSettings(),
+          discharge: createDefaultLogoSettings(),
+          fitness: createDefaultLogoSettings(),
+        },
         watermarkEnabled: false,
         watermarkImageEnabled: false,
         watermarkImage: "",
@@ -791,7 +948,8 @@ export default function Home() {
         watermarkTextSkewY: defaultReportData.watermarkTextSkewY,
         watermarkTextX: 50,
         watermarkTextY: 50,
-        watermarkTextLetterSpacing: defaultReportData.watermarkTextLetterSpacing,
+        watermarkTextLetterSpacing:
+          defaultReportData.watermarkTextLetterSpacing,
         watermarkTextStyle: defaultReportData.watermarkTextStyle,
         watermarkTextTransform: defaultReportData.watermarkTextTransform,
         reportTheme: defaultReportData.reportTheme,
@@ -946,7 +1104,10 @@ export default function Home() {
             : fadeSide === "right"
               ? `<linearGradient id="fadeGradient" x1="0" y1="0" x2="1" y2="0"><stop offset="58%" stop-color="white"/><stop offset="100%" stop-color="white" stop-opacity="${fadedOpacity}"/></linearGradient>`
               : "";
-    const fadeMask = fadeSide === "none" ? "" : '<mask id="edgeFade"><rect width="600" height="600" fill="url(#fadeGradient)"/></mask>';
+    const fadeMask =
+      fadeSide === "none"
+        ? ""
+        : '<mask id="edgeFade"><rect width="600" height="600" fill="url(#fadeGradient)"/></mask>';
 
     return `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
       <defs>
@@ -1010,31 +1171,57 @@ export default function Home() {
     handleInputChange("dischargeSummaryStamps", updated);
   };
 
-  const createNameStampSvg = (design: NameStampDesigner = nameStampDesigner) => {
-    const { doctorName, department, degree, hospitalName, color, shape, inkOpacity, distress, inkSpread, edgeSoftness, fadeSide, fadeStrength, inkSpill = 0, sizeMismatch = 0, textOpacityVariation = 0, borderEnabled = true, borderWidth = 1 } = design;
+  const createNameStampSvg = (
+    design: NameStampDesigner = nameStampDesigner,
+  ) => {
+    const {
+      doctorName,
+      department,
+      degree,
+      hospitalName,
+      color,
+      shape,
+      inkOpacity,
+      distress,
+      inkSpread,
+      edgeSoftness,
+      fadeSide,
+      fadeStrength,
+      inkSpill = 0,
+      sizeMismatch = 0,
+      textOpacityVariation = 0,
+      borderEnabled = true,
+      borderWidth = 1,
+    } = design;
     const isRound = shape === "round";
     const unevenText = Math.max(0, Math.min(1, textOpacityVariation));
     const fadeNoiseCoefficient = (unevenText / 3).toFixed(4);
-    const textureSeed = Array.from(`${doctorName}|${department}|${degree}|${hospitalName}`).reduce(
-      (seed, character, index) => (seed + character.charCodeAt(0) * (index + 1)) % 89,
+    const textureSeed = Array.from(
+      `${doctorName}|${department}|${degree}|${hospitalName}`,
+    ).reduce(
+      (seed, character, index) =>
+        (seed + character.charCodeAt(0) * (index + 1)) % 89,
       11,
     );
     const fadedOpacity = Math.max(0, 1 - fadeStrength).toFixed(2);
-    const fadeGradient = fadeSide === "top"
-      ? `<linearGradient id="nameFade" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="white" stop-opacity="${fadedOpacity}"/><stop offset="42%" stop-color="white"/></linearGradient>`
-      : fadeSide === "bottom"
-        ? `<linearGradient id="nameFade" x1="0" y1="0" x2="0" y2="1"><stop offset="58%" stop-color="white"/><stop offset="100%" stop-color="white" stop-opacity="${fadedOpacity}"/></linearGradient>`
-        : fadeSide === "left"
-          ? `<linearGradient id="nameFade" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="white" stop-opacity="${fadedOpacity}"/><stop offset="42%" stop-color="white"/></linearGradient>`
-          : fadeSide === "right"
-            ? `<linearGradient id="nameFade" x1="0" y1="0" x2="1" y2="0"><stop offset="58%" stop-color="white"/><stop offset="100%" stop-color="white" stop-opacity="${fadedOpacity}"/></linearGradient>`
-            : "";
+    const fadeGradient =
+      fadeSide === "top"
+        ? `<linearGradient id="nameFade" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="white" stop-opacity="${fadedOpacity}"/><stop offset="42%" stop-color="white"/></linearGradient>`
+        : fadeSide === "bottom"
+          ? `<linearGradient id="nameFade" x1="0" y1="0" x2="0" y2="1"><stop offset="58%" stop-color="white"/><stop offset="100%" stop-color="white" stop-opacity="${fadedOpacity}"/></linearGradient>`
+          : fadeSide === "left"
+            ? `<linearGradient id="nameFade" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="white" stop-opacity="${fadedOpacity}"/><stop offset="42%" stop-color="white"/></linearGradient>`
+            : fadeSide === "right"
+              ? `<linearGradient id="nameFade" x1="0" y1="0" x2="1" y2="0"><stop offset="58%" stop-color="white"/><stop offset="100%" stop-color="white" stop-opacity="${fadedOpacity}"/></linearGradient>`
+              : "";
     const frame = !borderEnabled
       ? ""
       : isRound
         ? `<circle cx="300" cy="300" r="255" fill="none" stroke="currentColor" stroke-width="${16 * borderWidth}"/><circle cx="300" cy="300" r="222" fill="none" stroke="currentColor" stroke-width="${4 * borderWidth}" stroke-dasharray="7 5"/>`
         : `<rect x="30" y="130" width="540" height="340" rx="15" fill="none" stroke="currentColor" stroke-width="${16 * borderWidth}"/><rect x="50" y="150" width="500" height="300" rx="8" fill="none" stroke="currentColor" stroke-width="${4 * borderWidth}" stroke-dasharray="7 5"/>`;
-    const textY = isRound ? { hospital: 190, name: 270, department: 330, degree: 385 } : { hospital: 205, name: 275, department: 335, degree: 400 };
+    const textY = isRound
+      ? { hospital: 190, name: 270, department: 330, degree: 385 }
+      : { hospital: 205, name: 275, department: 335, degree: 400 };
     return `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
       <defs>
         <filter id="nameRough" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
@@ -1094,14 +1281,26 @@ export default function Home() {
       documentTypes: ["diagnostic", "discharge", "fitness"],
       nameDesigner: { ...nameStampDesigner },
     };
-    handleInputChange("dischargeSummaryStamps", [...data.dischargeSummaryStamps, newStamp]);
+    handleInputChange("dischargeSummaryStamps", [
+      ...data.dischargeSummaryStamps,
+      newStamp,
+    ]);
   };
 
-  const handleNameStampChange = <K extends keyof NameStampDesigner>(stampId: string, key: K, value: NameStampDesigner[K]) => {
+  const handleNameStampChange = <K extends keyof NameStampDesigner>(
+    stampId: string,
+    key: K,
+    value: NameStampDesigner[K],
+  ) => {
     const updated = data.dischargeSummaryStamps.map((stamp) => {
       if (stamp.id !== stampId || !stamp.nameDesigner) return stamp;
       const nameDesigner = { ...stamp.nameDesigner, [key]: value };
-      return { ...stamp, label: nameDesigner.doctorName || "Doctor Name Stamp", nameDesigner, image: nameStampSvgDataUrl(nameDesigner) };
+      return {
+        ...stamp,
+        label: nameDesigner.doctorName || "Doctor Name Stamp",
+        nameDesigner,
+        image: nameStampSvgDataUrl(nameDesigner),
+      };
     });
     handleInputChange("dischargeSummaryStamps", updated);
   };
@@ -1116,7 +1315,10 @@ export default function Home() {
     };
 
     if (format === "svg") {
-      download(URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" })), "svg");
+      download(
+        URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" })),
+        "svg",
+      );
       return;
     }
 
@@ -1363,7 +1565,9 @@ export default function Home() {
       );
       const appliesToPage = stamp.pages.includes(page);
 
-      const stampImage = stamp.image || (stamp.nameDesigner ? nameStampSvgDataUrl(stamp.nameDesigner) : "");
+      const stampImage =
+        stamp.image ||
+        (stamp.nameDesigner ? nameStampSvgDataUrl(stamp.nameDesigner) : "");
       if (!stampImage || !appliesToDocument || !appliesToPage) return null;
 
       return (
@@ -1395,18 +1599,22 @@ export default function Home() {
       );
     });
 
-  const renderHeaderBrand = (compact = false) => {
+  const renderHeaderBrand = (
+    documentType: DocumentType,
+    compact = false,
+  ) => {
+    const logoSettings = getDocumentLogoSettings(data, documentType);
     const textSize = compact
-      ? `${data.logoTextSize * 0.8}px`
-      : `${data.logoTextSize}px`;
-    const textWeight = data.logoTextWeight;
+      ? `${logoSettings.logoTextSize * 0.8}px`
+      : `${logoSettings.logoTextSize}px`;
+    const textWeight = logoSettings.logoTextWeight;
 
     return (
       <div
         className="relative flex items-center justify-start min-w-0 w-full"
         style={{ minHeight: compact ? "32px" : "44px", overflow: "visible" }}
       >
-        {data.headerLogos.map(
+        {logoSettings.headerLogos.map(
           (logo) =>
             logo.image && (
               <div
@@ -1433,19 +1641,19 @@ export default function Home() {
             ),
         )}
 
-        {data.logoType === "image" && data.logoImage ? (
+        {logoSettings.logoType === "image" && logoSettings.logoImage ? (
           <div
             className="absolute pointer-events-none z-10"
             style={{
-              left: `${data.logoImageX}%`,
-              top: `${data.logoImageY}%`,
-              width: `${data.logoImageWidth}%`,
-              height: `${data.logoImageHeight}%`,
+              left: `${logoSettings.logoImageX}%`,
+              top: `${logoSettings.logoImageY}%`,
+              width: `${logoSettings.logoImageWidth}%`,
+              height: `${logoSettings.logoImageHeight}%`,
               transform: "translate(-50%, -50%)",
             }}
           >
             <img
-              src={data.logoImage}
+              src={logoSettings.logoImage}
               alt="Hospital Logo"
               className="w-full h-full object-contain"
             />
@@ -1454,7 +1662,7 @@ export default function Home() {
           <div className="flex items-center min-w-0">
             <span
               style={{
-                color: data.logoTextColor,
+                color: logoSettings.logoTextColor,
                 fontSize: textSize,
                 fontWeight: textWeight,
                 lineHeight: 1,
@@ -1558,13 +1766,47 @@ export default function Home() {
     borderLeft: `3px solid ${data.reportTheme.primary}`,
   });
 
+  const renderEmergencyStripe = () => {
+    if (!data.emergencyStripeText.trim()) return null;
+
+    return (
+      <div
+        className="absolute right-0 top-0 z-30 flex h-[25px] items-center justify-center overflow-hidden whitespace-nowrap px-5 pl-8 text-[10px] font-bold text-white"
+        style={{
+          width: `${data.emergencyStripeWidth}%`,
+          backgroundColor: data.emergencyStripeBackground,
+          color: data.emergencyStripeTextColor,
+          clipPath: "polygon(0 0, 100% 0, 100% 100%, 7% 100%)",
+        }}
+      >
+        {data.emergencyStripeText}
+      </div>
+    );
+  };
+
+  const renderTopUhid = () => {
+    if (!data.showUhidAtTop || !data.uhid.trim()) return null;
+    const topUhid = data.uhid.trim().replace(/^AH\.\s*/i, "");
+
+    return (
+      <div className="absolute left-0 top-0 z-30 flex h-[25px] items-center px-4 text-[9px] font-semibold tracking-wide text-slate-400">
+        UHID: {topUhid}
+      </div>
+    );
+  };
+
   const renderLogoWatermarkSettings = () => (
     <>
       {/* Logo Section */}
       <div className="bg-slate-950 p-4 rounded-xl border border-slate-850 space-y-4">
         <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
           <ImageIcon className="w-4 h-4" />
-          Logo Settings
+          Logo Settings —{" "}
+          {docType === "diagnostic"
+            ? "Diagnostic Report"
+            : docType === "discharge"
+              ? "Discharge Summary"
+              : "Fitness Certificate"}
         </h4>
         <div>
           <label className="block text-[11px] text-slate-400 mb-1.5 font-semibold">
@@ -1572,9 +1814,9 @@ export default function Home() {
           </label>
           <div className="flex gap-2">
             <button
-              onClick={() => handleInputChange("logoType", "text")}
+              onClick={() => handleLogoSettingChange("logoType", "text")}
               className={`flex-1 py-1.5 text-xs font-bold rounded ${
-                data.logoType === "text"
+                activeLogoSettings.logoType === "text"
                   ? "bg-emerald-500 text-slate-950"
                   : "bg-slate-900 text-slate-400"
               }`}
@@ -1582,9 +1824,9 @@ export default function Home() {
               Default Text Logo
             </button>
             <button
-              onClick={() => handleInputChange("logoType", "image")}
+              onClick={() => handleLogoSettingChange("logoType", "image")}
               className={`flex-1 py-1.5 text-xs font-bold rounded ${
-                data.logoType === "image"
+                activeLogoSettings.logoType === "image"
                   ? "bg-emerald-500 text-slate-950"
                   : "bg-slate-900 text-slate-400"
               }`}
@@ -1594,7 +1836,7 @@ export default function Home() {
           </div>
         </div>
 
-        {data.logoType === "text" && (
+        {activeLogoSettings.logoType === "text" && (
           <div className="space-y-3">
             <div>
               <label className="block text-[10px] text-slate-500 font-semibold">
@@ -1617,24 +1859,27 @@ export default function Home() {
                 </label>
                 <input
                   type="color"
-                  value={data.logoTextColor}
+                  value={activeLogoSettings.logoTextColor}
                   onChange={(e) =>
-                    handleInputChange("logoTextColor", e.target.value)
+                    handleLogoSettingChange("logoTextColor", e.target.value)
                   }
                   className="w-full h-9 rounded border border-slate-700 bg-slate-900"
                 />
               </div>
               <div>
                 <label className="block text-[10px] text-slate-500 font-semibold mb-1">
-                  Text Size ({data.logoTextSize}px)
+                  Text Size ({activeLogoSettings.logoTextSize}px)
                 </label>
                 <input
                   type="range"
                   min="14"
                   max="40"
-                  value={data.logoTextSize}
+                  value={activeLogoSettings.logoTextSize}
                   onChange={(e) =>
-                    handleInputChange("logoTextSize", Number(e.target.value))
+                    handleLogoSettingChange(
+                      "logoTextSize",
+                      Number(e.target.value),
+                    )
                   }
                   className="w-full accent-emerald-500"
                 />
@@ -1642,16 +1887,19 @@ export default function Home() {
             </div>
             <div>
               <label className="block text-[10px] text-slate-500 font-semibold mb-1">
-                Font Weight ({data.logoTextWeight})
+                Font Weight ({activeLogoSettings.logoTextWeight})
               </label>
               <input
                 type="range"
                 min="400"
                 max="900"
                 step="100"
-                value={data.logoTextWeight}
+                value={activeLogoSettings.logoTextWeight}
                 onChange={(e) =>
-                  handleInputChange("logoTextWeight", Number(e.target.value))
+                  handleLogoSettingChange(
+                    "logoTextWeight",
+                    Number(e.target.value),
+                  )
                 }
                 className="w-full accent-emerald-500"
               />
@@ -1659,7 +1907,7 @@ export default function Home() {
           </div>
         )}
 
-        {data.logoType === "image" && (
+        {activeLogoSettings.logoType === "image" && (
           <div className="space-y-3">
             <label className="block text-[10px] text-slate-500 font-semibold">
               Hospital Logo Image
@@ -1667,13 +1915,13 @@ export default function Home() {
             <input
               type="file"
               accept="image/*"
-              onChange={(e) => handleImageUpload(e, "logoImage")}
+              onChange={handleLogoImageUpload}
               className="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700"
             />
-            {data.logoImage && (
+            {activeLogoSettings.logoImage && (
               <div className="bg-white p-2 rounded flex justify-center max-h-16 overflow-hidden mt-1">
                 <img
-                  src={data.logoImage}
+                  src={activeLogoSettings.logoImage}
                   alt="Logo preview"
                   className="object-contain"
                 />
@@ -1681,19 +1929,17 @@ export default function Home() {
             )}
             <div className="flex items-center justify-between pt-1">
               <span className="text-[10px] text-slate-400">
-                Use any values for size or position; values above 100% can extend across the page.
+                Use any values for size or position; values above 100% can
+                extend across the page.
               </span>
               <button
                 type="button"
-                onClick={() =>
-                  setData((previous) => ({
-                    ...previous,
-                    logoImageWidth: 100,
-                    logoImageHeight: 100,
-                    logoImageX: 50,
-                    logoImageY: 50,
-                  }))
-                }
+                onClick={() => {
+                  handleLogoSettingChange("logoImageWidth", 100);
+                  handleLogoSettingChange("logoImageHeight", 100);
+                  handleLogoSettingChange("logoImageX", 50);
+                  handleLogoSettingChange("logoImageY", 50);
+                }}
                 className="shrink-0 ml-2 px-2 py-1 text-[10px] font-semibold rounded bg-slate-800 hover:bg-slate-700 text-slate-200"
               >
                 Full Width
@@ -1710,10 +1956,22 @@ export default function Home() {
                   <span>{label}</span>
                   <input
                     type="number"
-                    value={data[field as "logoImageWidth" | "logoImageHeight" | "logoImageX" | "logoImageY"]}
+                    value={
+                      activeLogoSettings[
+                        field as
+                          | "logoImageWidth"
+                          | "logoImageHeight"
+                          | "logoImageX"
+                          | "logoImageY"
+                      ]
+                    }
                     onChange={(event) =>
-                      handleInputChange(
-                        field as "logoImageWidth" | "logoImageHeight" | "logoImageX" | "logoImageY",
+                      handleLogoSettingChange(
+                        field as
+                          | "logoImageWidth"
+                          | "logoImageHeight"
+                          | "logoImageX"
+                          | "logoImageY",
                         Number(event.target.value),
                       )
                     }
@@ -1739,14 +1997,14 @@ export default function Home() {
             </button>
           </div>
 
-          {data.headerLogos.map((logo) => (
+          {activeLogoSettings.headerLogos.map((logo) => (
             <div
               key={logo.id}
               className="bg-slate-900 border border-slate-800 rounded p-3 space-y-3"
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] font-semibold text-slate-300">
-                  Logo {data.headerLogos.indexOf(logo) + 1}
+                  Logo {activeLogoSettings.headerLogos.indexOf(logo) + 1}
                 </span>
                 <button
                   type="button"
@@ -1846,7 +2104,11 @@ export default function Home() {
                     type="number"
                     value={logo.x}
                     onChange={(e) =>
-                      handleHeaderLogoChange(logo.id, "x", Number(e.target.value))
+                      handleHeaderLogoChange(
+                        logo.id,
+                        "x",
+                        Number(e.target.value),
+                      )
                     }
                     className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
                   />
@@ -1857,7 +2119,11 @@ export default function Home() {
                     type="number"
                     value={logo.y}
                     onChange={(e) =>
-                      handleHeaderLogoChange(logo.id, "y", Number(e.target.value))
+                      handleHeaderLogoChange(
+                        logo.id,
+                        "y",
+                        Number(e.target.value),
+                      )
                     }
                     className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
                   />
@@ -1972,7 +2238,9 @@ export default function Home() {
               </label>
               <textarea
                 value={data.watermarkText}
-                onChange={(e) => handleInputChange("watermarkText", e.target.value)}
+                onChange={(e) =>
+                  handleInputChange("watermarkText", e.target.value)
+                }
                 placeholder="e.g. CONFIDENTIAL"
                 rows={2}
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500 resize-none"
@@ -1982,19 +2250,33 @@ export default function Home() {
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Text Color</label>
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">
+                        Text Color
+                      </label>
                       <input
                         type="color"
                         value={data.watermarkTextColor}
-                        onChange={(e) => handleInputChange("watermarkTextColor", e.target.value)}
+                        onChange={(e) =>
+                          handleInputChange(
+                            "watermarkTextColor",
+                            e.target.value,
+                          )
+                        }
                         className="w-full h-9 rounded border border-slate-700 bg-slate-900"
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Style</label>
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">
+                        Style
+                      </label>
                       <select
                         value={data.watermarkTextStyle}
-                        onChange={(e) => handleInputChange("watermarkTextStyle", e.target.value as ReportData["watermarkTextStyle"])}
+                        onChange={(e) =>
+                          handleInputChange(
+                            "watermarkTextStyle",
+                            e.target.value as ReportData["watermarkTextStyle"],
+                          )
+                        }
                         className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100"
                       >
                         <option value="normal">Normal</option>
@@ -2004,10 +2286,18 @@ export default function Home() {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Case</label>
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">
+                        Case
+                      </label>
                       <select
                         value={data.watermarkTextTransform}
-                        onChange={(e) => handleInputChange("watermarkTextTransform", e.target.value as ReportData["watermarkTextTransform"])}
+                        onChange={(e) =>
+                          handleInputChange(
+                            "watermarkTextTransform",
+                            e.target
+                              .value as ReportData["watermarkTextTransform"],
+                          )
+                        }
                         className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100"
                       >
                         <option value="uppercase">UPPERCASE</option>
@@ -2016,47 +2306,175 @@ export default function Home() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Weight ({data.watermarkTextWeight})</label>
-                      <input type="range" min="100" max="900" step="100" value={data.watermarkTextWeight} onChange={(e) => handleInputChange("watermarkTextWeight", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">
+                        Weight ({data.watermarkTextWeight})
+                      </label>
+                      <input
+                        type="range"
+                        min="100"
+                        max="900"
+                        step="100"
+                        value={data.watermarkTextWeight}
+                        onChange={(e) =>
+                          handleInputChange(
+                            "watermarkTextWeight",
+                            parseInt(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Size ({data.watermarkTextSize}px)</label>
-                      <input type="range" min="12" max="160" value={data.watermarkTextSize} onChange={(e) => handleInputChange("watermarkTextSize", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">
+                        Size ({data.watermarkTextSize}px)
+                      </label>
+                      <input
+                        type="range"
+                        min="12"
+                        max="160"
+                        value={data.watermarkTextSize}
+                        onChange={(e) =>
+                          handleInputChange(
+                            "watermarkTextSize",
+                            parseInt(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
                     </div>
                     <div>
-                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Opacity ({Math.round(data.watermarkTextOpacity * 100)}%)</label>
-                      <input type="range" min="0.05" max="1" step="0.01" value={data.watermarkTextOpacity} onChange={(e) => handleInputChange("watermarkTextOpacity", parseFloat(e.target.value))} className="w-full accent-emerald-500" />
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">
+                        Opacity ({Math.round(data.watermarkTextOpacity * 100)}%)
+                      </label>
+                      <input
+                        type="range"
+                        min="0.05"
+                        max="1"
+                        step="0.01"
+                        value={data.watermarkTextOpacity}
+                        onChange={(e) =>
+                          handleInputChange(
+                            "watermarkTextOpacity",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Text X-Axis ({data.watermarkTextX}%)</label>
-                      <input type="range" min="0" max="100" value={data.watermarkTextX} onChange={(e) => handleInputChange("watermarkTextX", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">
+                        Text X-Axis ({data.watermarkTextX}%)
+                      </label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={data.watermarkTextX}
+                        onChange={(e) =>
+                          handleInputChange(
+                            "watermarkTextX",
+                            parseInt(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
                     </div>
                     <div>
-                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Text Y-Axis ({data.watermarkTextY}%)</label>
-                      <input type="range" min="0" max="100" value={data.watermarkTextY} onChange={(e) => handleInputChange("watermarkTextY", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">
+                        Text Y-Axis ({data.watermarkTextY}%)
+                      </label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={data.watermarkTextY}
+                        onChange={(e) =>
+                          handleInputChange(
+                            "watermarkTextY",
+                            parseInt(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
                     <div>
-                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Rotate ({data.watermarkTextRotation}°)</label>
-                      <input type="range" min="-180" max="180" value={data.watermarkTextRotation} onChange={(e) => handleInputChange("watermarkTextRotation", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">
+                        Rotate ({data.watermarkTextRotation}°)
+                      </label>
+                      <input
+                        type="range"
+                        min="-180"
+                        max="180"
+                        value={data.watermarkTextRotation}
+                        onChange={(e) =>
+                          handleInputChange(
+                            "watermarkTextRotation",
+                            parseInt(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
                     </div>
                     <div>
-                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Skew X ({data.watermarkTextSkewX}°)</label>
-                      <input type="range" min="-45" max="45" value={data.watermarkTextSkewX} onChange={(e) => handleInputChange("watermarkTextSkewX", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">
+                        Skew X ({data.watermarkTextSkewX}°)
+                      </label>
+                      <input
+                        type="range"
+                        min="-45"
+                        max="45"
+                        value={data.watermarkTextSkewX}
+                        onChange={(e) =>
+                          handleInputChange(
+                            "watermarkTextSkewX",
+                            parseInt(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
                     </div>
                     <div>
-                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Skew Y ({data.watermarkTextSkewY}°)</label>
-                      <input type="range" min="-45" max="45" value={data.watermarkTextSkewY} onChange={(e) => handleInputChange("watermarkTextSkewY", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                      <label className="block text-[11px] text-slate-400 mb-1 font-semibold">
+                        Skew Y ({data.watermarkTextSkewY}°)
+                      </label>
+                      <input
+                        type="range"
+                        min="-45"
+                        max="45"
+                        value={data.watermarkTextSkewY}
+                        onChange={(e) =>
+                          handleInputChange(
+                            "watermarkTextSkewY",
+                            parseInt(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-[11px] text-slate-400 mb-1 font-semibold">Letter Spacing ({data.watermarkTextLetterSpacing}px)</label>
-                    <input type="range" min="-2" max="20" value={data.watermarkTextLetterSpacing} onChange={(e) => handleInputChange("watermarkTextLetterSpacing", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                    <label className="block text-[11px] text-slate-400 mb-1 font-semibold">
+                      Letter Spacing ({data.watermarkTextLetterSpacing}px)
+                    </label>
+                    <input
+                      type="range"
+                      min="-2"
+                      max="20"
+                      value={data.watermarkTextLetterSpacing}
+                      onChange={(e) =>
+                        handleInputChange(
+                          "watermarkTextLetterSpacing",
+                          parseInt(e.target.value),
+                        )
+                      }
+                      className="w-full accent-emerald-500"
+                    />
                   </div>
                 </div>
               )}
@@ -2171,63 +2589,182 @@ export default function Home() {
         <div className="bg-slate-900 p-3.5 rounded-lg border border-emerald-900/60 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h5 className="text-xs font-bold text-emerald-300">Stamp Designer</h5>
-              <p className="text-[10px] text-slate-500">Create a distressed ink-style seal, export it, or add it directly to the document.</p>
+              <h5 className="text-xs font-bold text-emerald-300">
+                Stamp Designer
+              </h5>
+              <p className="text-[10px] text-slate-500">
+                Create a distressed ink-style seal, export it, or add it
+                directly to the document.
+              </p>
             </div>
             <div className="w-20 h-20 rounded bg-white/95 p-1 shrink-0">
-              <img src={stampSvgDataUrl()} alt="Designed stamp preview" className="w-full h-full object-contain" />
+              <img
+                src={stampSvgDataUrl()}
+                alt="Designed stamp preview"
+                className="w-full h-full object-contain"
+              />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <input
               value={stampDesigner.name}
-              onChange={(e) => setStampDesigner({ ...stampDesigner, name: e.target.value })}
+              onChange={(e) =>
+                setStampDesigner({ ...stampDesigner, name: e.target.value })
+              }
               placeholder="Saved stamp name"
               className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
             />
             <select
               value={stampDesigner.shape}
-              onChange={(e) => setStampDesigner({ ...stampDesigner, shape: e.target.value as StampDesigner["shape"] })}
+              onChange={(e) =>
+                setStampDesigner({
+                  ...stampDesigner,
+                  shape: e.target.value as StampDesigner["shape"],
+                })
+              }
               className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
             >
               <option value="round">Round seal</option>
               <option value="rectangle">Rectangle seal</option>
             </select>
           </div>
-          <input value={stampDesigner.mainText} onChange={(e) => setStampDesigner({ ...stampDesigner, mainText: e.target.value })} placeholder="Main stamp text" className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100 font-bold" />
+          <input
+            value={stampDesigner.mainText}
+            onChange={(e) =>
+              setStampDesigner({ ...stampDesigner, mainText: e.target.value })
+            }
+            placeholder="Main stamp text"
+            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100 font-bold"
+          />
           <div className="grid grid-cols-2 gap-3">
-            <input value={stampDesigner.topText} onChange={(e) => setStampDesigner({ ...stampDesigner, topText: e.target.value })} placeholder="Top ring text" className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100" />
-            <input value={stampDesigner.bottomText} onChange={(e) => setStampDesigner({ ...stampDesigner, bottomText: e.target.value })} placeholder="Bottom ring text" className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100" />
+            <input
+              value={stampDesigner.topText}
+              onChange={(e) =>
+                setStampDesigner({ ...stampDesigner, topText: e.target.value })
+              }
+              placeholder="Top ring text"
+              className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
+            />
+            <input
+              value={stampDesigner.bottomText}
+              onChange={(e) =>
+                setStampDesigner({
+                  ...stampDesigner,
+                  bottomText: e.target.value,
+                })
+              }
+              placeholder="Bottom ring text"
+              className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
+            />
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-[10px] text-slate-500 font-semibold mb-1">Ink color</label>
-              <input type="color" value={stampDesigner.color} onChange={(e) => setStampDesigner({ ...stampDesigner, color: e.target.value })} className="w-full h-8 rounded border border-slate-700 bg-slate-800" />
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">
+                Ink color
+              </label>
+              <input
+                type="color"
+                value={stampDesigner.color}
+                onChange={(e) =>
+                  setStampDesigner({ ...stampDesigner, color: e.target.value })
+                }
+                className="w-full h-8 rounded border border-slate-700 bg-slate-800"
+              />
             </div>
             <div>
-              <label className="block text-[10px] text-slate-500 font-semibold mb-1">Ink ({Math.round(stampDesigner.inkOpacity * 100)}%)</label>
-              <input type="range" min="0.35" max="1" step="0.05" value={stampDesigner.inkOpacity} onChange={(e) => setStampDesigner({ ...stampDesigner, inkOpacity: parseFloat(e.target.value) })} className="w-full accent-emerald-500" />
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">
+                Ink ({Math.round(stampDesigner.inkOpacity * 100)}%)
+              </label>
+              <input
+                type="range"
+                min="0.35"
+                max="1"
+                step="0.05"
+                value={stampDesigner.inkOpacity}
+                onChange={(e) =>
+                  setStampDesigner({
+                    ...stampDesigner,
+                    inkOpacity: parseFloat(e.target.value),
+                  })
+                }
+                className="w-full accent-emerald-500"
+              />
             </div>
             <div>
-              <label className="block text-[10px] text-slate-500 font-semibold mb-1">Distress ({stampDesigner.distress})</label>
-              <input type="range" min="0" max="12" value={stampDesigner.distress} onChange={(e) => setStampDesigner({ ...stampDesigner, distress: parseInt(e.target.value) })} className="w-full accent-emerald-500" />
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">
+                Distress ({stampDesigner.distress})
+              </label>
+              <input
+                type="range"
+                min="0"
+                max="12"
+                value={stampDesigner.distress}
+                onChange={(e) =>
+                  setStampDesigner({
+                    ...stampDesigner,
+                    distress: parseInt(e.target.value),
+                  })
+                }
+                className="w-full accent-emerald-500"
+              />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[10px] text-slate-500 font-semibold mb-1">Ink spread ({stampDesigner.inkSpread.toFixed(1)})</label>
-              <input type="range" min="0" max="3" step="0.1" value={stampDesigner.inkSpread} onChange={(e) => setStampDesigner({ ...stampDesigner, inkSpread: parseFloat(e.target.value) })} className="w-full accent-emerald-500" />
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">
+                Ink spread ({stampDesigner.inkSpread.toFixed(1)})
+              </label>
+              <input
+                type="range"
+                min="0"
+                max="3"
+                step="0.1"
+                value={stampDesigner.inkSpread}
+                onChange={(e) =>
+                  setStampDesigner({
+                    ...stampDesigner,
+                    inkSpread: parseFloat(e.target.value),
+                  })
+                }
+                className="w-full accent-emerald-500"
+              />
             </div>
             <div>
-              <label className="block text-[10px] text-slate-500 font-semibold mb-1">Edge softness ({stampDesigner.edgeSoftness.toFixed(1)})</label>
-              <input type="range" min="0" max="1.5" step="0.1" value={stampDesigner.edgeSoftness} onChange={(e) => setStampDesigner({ ...stampDesigner, edgeSoftness: parseFloat(e.target.value) })} className="w-full accent-emerald-500" />
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">
+                Edge softness ({stampDesigner.edgeSoftness.toFixed(1)})
+              </label>
+              <input
+                type="range"
+                min="0"
+                max="1.5"
+                step="0.1"
+                value={stampDesigner.edgeSoftness}
+                onChange={(e) =>
+                  setStampDesigner({
+                    ...stampDesigner,
+                    edgeSoftness: parseFloat(e.target.value),
+                  })
+                }
+                className="w-full accent-emerald-500"
+              />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[10px] text-slate-500 font-semibold mb-1">Fade ink on side</label>
-              <select value={stampDesigner.fadeSide} onChange={(e) => setStampDesigner({ ...stampDesigner, fadeSide: e.target.value as StampDesigner["fadeSide"] })} className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100">
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">
+                Fade ink on side
+              </label>
+              <select
+                value={stampDesigner.fadeSide}
+                onChange={(e) =>
+                  setStampDesigner({
+                    ...stampDesigner,
+                    fadeSide: e.target.value as StampDesigner["fadeSide"],
+                  })
+                }
+                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
+              >
                 <option value="none">No edge fade</option>
                 <option value="top">Top edge</option>
                 <option value="right">Right edge</option>
@@ -2236,49 +2773,392 @@ export default function Home() {
               </select>
             </div>
             <div>
-              <label className="block text-[10px] text-slate-500 font-semibold mb-1">Fade strength ({Math.round(stampDesigner.fadeStrength * 100)}%)</label>
-              <input type="range" min="0.1" max="1" step="0.05" value={stampDesigner.fadeStrength} onChange={(e) => setStampDesigner({ ...stampDesigner, fadeStrength: parseFloat(e.target.value) })} className="w-full accent-emerald-500" />
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">
+                Fade strength ({Math.round(stampDesigner.fadeStrength * 100)}%)
+              </label>
+              <input
+                type="range"
+                min="0.1"
+                max="1"
+                step="0.05"
+                value={stampDesigner.fadeStrength}
+                onChange={(e) =>
+                  setStampDesigner({
+                    ...stampDesigner,
+                    fadeStrength: parseFloat(e.target.value),
+                  })
+                }
+                className="w-full accent-emerald-500"
+              />
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3 text-[10px] text-slate-400">
-            <div>Ink spill ({stampDesigner.inkSpill})<input type="range" min="0" max="16" value={stampDesigner.inkSpill} onChange={(e) => setStampDesigner({ ...stampDesigner, inkSpill: parseInt(e.target.value) })} className="w-full accent-emerald-500" /></div>
-            <div>Border <input type="checkbox" checked={stampDesigner.borderEnabled} onChange={(e) => setStampDesigner({ ...stampDesigner, borderEnabled: e.target.checked })} className="ml-1 accent-emerald-500" /><input type="range" min="0.5" max="2.5" step="0.1" value={stampDesigner.borderWidth} onChange={(e) => setStampDesigner({ ...stampDesigner, borderWidth: parseFloat(e.target.value) })} className="w-full accent-emerald-500" /></div>
-            <div>Uneven text ({Math.round(stampDesigner.textOpacityVariation * 100)}%)<input type="range" min="0" max="0.6" step="0.05" value={stampDesigner.textOpacityVariation} onChange={(e) => setStampDesigner({ ...stampDesigner, textOpacityVariation: parseFloat(e.target.value) })} className="w-full accent-emerald-500" /></div>
+            <div>
+              Ink spill ({stampDesigner.inkSpill})
+              <input
+                type="range"
+                min="0"
+                max="16"
+                value={stampDesigner.inkSpill}
+                onChange={(e) =>
+                  setStampDesigner({
+                    ...stampDesigner,
+                    inkSpill: parseInt(e.target.value),
+                  })
+                }
+                className="w-full accent-emerald-500"
+              />
+            </div>
+            <div>
+              Border{" "}
+              <input
+                type="checkbox"
+                checked={stampDesigner.borderEnabled}
+                onChange={(e) =>
+                  setStampDesigner({
+                    ...stampDesigner,
+                    borderEnabled: e.target.checked,
+                  })
+                }
+                className="ml-1 accent-emerald-500"
+              />
+              <input
+                type="range"
+                min="0.5"
+                max="2.5"
+                step="0.1"
+                value={stampDesigner.borderWidth}
+                onChange={(e) =>
+                  setStampDesigner({
+                    ...stampDesigner,
+                    borderWidth: parseFloat(e.target.value),
+                  })
+                }
+                className="w-full accent-emerald-500"
+              />
+            </div>
+            <div>
+              Uneven text (
+              {Math.round(stampDesigner.textOpacityVariation * 100)}%)
+              <input
+                type="range"
+                min="0"
+                max="0.6"
+                step="0.05"
+                value={stampDesigner.textOpacityVariation}
+                onChange={(e) =>
+                  setStampDesigner({
+                    ...stampDesigner,
+                    textOpacityVariation: parseFloat(e.target.value),
+                  })
+                }
+                className="w-full accent-emerald-500"
+              />
+            </div>
           </div>
           <div className="flex flex-wrap gap-2 pt-1">
-            <button onClick={useDesignedStamp} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400 px-3 py-1.5 rounded text-xs font-bold">Use in stamp area</button>
-            <button onClick={() => downloadDesignedStamp("png")} className="bg-slate-800 text-slate-200 hover:bg-slate-700 px-3 py-1.5 rounded text-xs font-semibold">Save PNG</button>
-            <button onClick={() => downloadDesignedStamp("svg")} className="bg-slate-800 text-slate-200 hover:bg-slate-700 px-3 py-1.5 rounded text-xs font-semibold">Save SVG</button>
+            <button
+              onClick={useDesignedStamp}
+              className="bg-emerald-500 text-slate-950 hover:bg-emerald-400 px-3 py-1.5 rounded text-xs font-bold"
+            >
+              Use in stamp area
+            </button>
+            <button
+              onClick={() => downloadDesignedStamp("png")}
+              className="bg-slate-800 text-slate-200 hover:bg-slate-700 px-3 py-1.5 rounded text-xs font-semibold"
+            >
+              Save PNG
+            </button>
+            <button
+              onClick={() => downloadDesignedStamp("svg")}
+              className="bg-slate-800 text-slate-200 hover:bg-slate-700 px-3 py-1.5 rounded text-xs font-semibold"
+            >
+              Save SVG
+            </button>
           </div>
         </div>
 
         <div className="bg-slate-900 p-3.5 rounded-lg border border-blue-900/60 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h5 className="text-xs font-bold text-blue-300">Doctor Name Stamp</h5>
-              <p className="text-[10px] text-slate-500">A realistic ink-style doctor stamp. It can be placed anywhere on every diagnostic, discharge, or fitness page.</p>
+              <h5 className="text-xs font-bold text-blue-300">
+                Doctor Name Stamp
+              </h5>
+              <p className="text-[10px] text-slate-500">
+                A realistic ink-style doctor stamp. It can be placed anywhere on
+                every diagnostic, discharge, or fitness page.
+              </p>
             </div>
-            <div className="w-20 h-20 rounded bg-white/95 p-1 shrink-0"><img src={nameStampSvgDataUrl()} alt="Doctor name stamp preview" className="w-full h-full object-contain" /></div>
+            <div className="w-20 h-20 rounded bg-white/95 p-1 shrink-0">
+              <img
+                src={nameStampSvgDataUrl()}
+                alt="Doctor name stamp preview"
+                className="w-full h-full object-contain"
+              />
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <input value={nameStampDesigner.doctorName} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, doctorName: e.target.value })} placeholder="Doctor name" className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100 font-semibold" />
-            <input value={nameStampDesigner.department} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, department: e.target.value })} placeholder="Department" className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100" />
-            <input value={nameStampDesigner.degree} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, degree: e.target.value })} placeholder="Degree / qualification" className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100" />
-            <input value={nameStampDesigner.hospitalName} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, hospitalName: e.target.value })} placeholder="Hospital name" className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100" />
+            <input
+              value={nameStampDesigner.doctorName}
+              onChange={(e) =>
+                setNameStampDesigner({
+                  ...nameStampDesigner,
+                  doctorName: e.target.value,
+                })
+              }
+              placeholder="Doctor name"
+              className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100 font-semibold"
+            />
+            <input
+              value={nameStampDesigner.department}
+              onChange={(e) =>
+                setNameStampDesigner({
+                  ...nameStampDesigner,
+                  department: e.target.value,
+                })
+              }
+              placeholder="Department"
+              className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
+            />
+            <input
+              value={nameStampDesigner.degree}
+              onChange={(e) =>
+                setNameStampDesigner({
+                  ...nameStampDesigner,
+                  degree: e.target.value,
+                })
+              }
+              placeholder="Degree / qualification"
+              className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
+            />
+            <input
+              value={nameStampDesigner.hospitalName}
+              onChange={(e) =>
+                setNameStampDesigner({
+                  ...nameStampDesigner,
+                  hospitalName: e.target.value,
+                })
+              }
+              placeholder="Hospital name"
+              className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
+            />
           </div>
           <div className="grid grid-cols-3 gap-3">
-            <div><label className="block text-[10px] text-slate-500 font-semibold mb-1">Ink color</label><input type="color" value={nameStampDesigner.color} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, color: e.target.value })} className="w-full h-8 rounded border border-slate-700 bg-slate-800" /></div>
-            <div><label className="block text-[10px] text-slate-500 font-semibold mb-1">Shape</label><select value={nameStampDesigner.shape} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, shape: e.target.value as NameStampDesigner["shape"] })} className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"><option value="rectangle">Rectangle</option><option value="round">Round</option></select></div>
-            <div><label className="block text-[10px] text-slate-500 font-semibold mb-1">Ink ({Math.round(nameStampDesigner.inkOpacity * 100)}%)</label><input type="range" min="0.35" max="1" step="0.05" value={nameStampDesigner.inkOpacity} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, inkOpacity: parseFloat(e.target.value) })} className="w-full accent-blue-500" /></div>
+            <div>
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">
+                Ink color
+              </label>
+              <input
+                type="color"
+                value={nameStampDesigner.color}
+                onChange={(e) =>
+                  setNameStampDesigner({
+                    ...nameStampDesigner,
+                    color: e.target.value,
+                  })
+                }
+                className="w-full h-8 rounded border border-slate-700 bg-slate-800"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">
+                Shape
+              </label>
+              <select
+                value={nameStampDesigner.shape}
+                onChange={(e) =>
+                  setNameStampDesigner({
+                    ...nameStampDesigner,
+                    shape: e.target.value as NameStampDesigner["shape"],
+                  })
+                }
+                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
+              >
+                <option value="rectangle">Rectangle</option>
+                <option value="round">Round</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] text-slate-500 font-semibold mb-1">
+                Ink ({Math.round(nameStampDesigner.inkOpacity * 100)}%)
+              </label>
+              <input
+                type="range"
+                min="0.35"
+                max="1"
+                step="0.05"
+                value={nameStampDesigner.inkOpacity}
+                onChange={(e) =>
+                  setNameStampDesigner({
+                    ...nameStampDesigner,
+                    inkOpacity: parseFloat(e.target.value),
+                  })
+                }
+                className="w-full accent-blue-500"
+              />
+            </div>
           </div>
           <div className="grid grid-cols-3 gap-3 text-[10px] text-slate-400">
-            <div>Distress ({nameStampDesigner.distress})<input type="range" min="0" max="12" value={nameStampDesigner.distress} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, distress: parseInt(e.target.value) })} className="w-full accent-blue-500" /></div>
-            <div>Ink spread ({nameStampDesigner.inkSpread.toFixed(1)})<input type="range" min="0" max="3" step="0.1" value={nameStampDesigner.inkSpread} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, inkSpread: parseFloat(e.target.value) })} className="w-full accent-blue-500" /></div>
-            <div>Edge softness ({nameStampDesigner.edgeSoftness.toFixed(1)})<input type="range" min="0" max="1.5" step="0.1" value={nameStampDesigner.edgeSoftness} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, edgeSoftness: parseFloat(e.target.value) })} className="w-full accent-blue-500" /></div>
+            <div>
+              Distress ({nameStampDesigner.distress})
+              <input
+                type="range"
+                min="0"
+                max="12"
+                value={nameStampDesigner.distress}
+                onChange={(e) =>
+                  setNameStampDesigner({
+                    ...nameStampDesigner,
+                    distress: parseInt(e.target.value),
+                  })
+                }
+                className="w-full accent-blue-500"
+              />
+            </div>
+            <div>
+              Ink spread ({nameStampDesigner.inkSpread.toFixed(1)})
+              <input
+                type="range"
+                min="0"
+                max="3"
+                step="0.1"
+                value={nameStampDesigner.inkSpread}
+                onChange={(e) =>
+                  setNameStampDesigner({
+                    ...nameStampDesigner,
+                    inkSpread: parseFloat(e.target.value),
+                  })
+                }
+                className="w-full accent-blue-500"
+              />
+            </div>
+            <div>
+              Edge softness ({nameStampDesigner.edgeSoftness.toFixed(1)})
+              <input
+                type="range"
+                min="0"
+                max="1.5"
+                step="0.1"
+                value={nameStampDesigner.edgeSoftness}
+                onChange={(e) =>
+                  setNameStampDesigner({
+                    ...nameStampDesigner,
+                    edgeSoftness: parseFloat(e.target.value),
+                  })
+                }
+                className="w-full accent-blue-500"
+              />
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 text-[10px] text-slate-400"><div>Fade ink on side<select value={nameStampDesigner.fadeSide} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, fadeSide: e.target.value as NameStampDesigner["fadeSide"] })} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"><option value="none">No fade</option><option value="top">Top</option><option value="right">Right</option><option value="bottom">Bottom</option><option value="left">Left</option></select></div><div>Fade strength ({Math.round(nameStampDesigner.fadeStrength * 100)}%)<input type="range" min="0.1" max="1" step="0.05" value={nameStampDesigner.fadeStrength} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, fadeStrength: parseFloat(e.target.value) })} className="mt-2 w-full accent-blue-500" /></div></div>
-          <div className="grid grid-cols-3 gap-3 text-[10px] text-slate-400"><div>Ink spill ({nameStampDesigner.inkSpill})<input type="range" min="0" max="16" value={nameStampDesigner.inkSpill} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, inkSpill: parseInt(e.target.value) })} className="w-full accent-blue-500" /></div><div>Border <input type="checkbox" checked={nameStampDesigner.borderEnabled} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, borderEnabled: e.target.checked })} className="ml-1 accent-blue-500" /><input type="range" min="0.5" max="2.5" step="0.1" value={nameStampDesigner.borderWidth} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, borderWidth: parseFloat(e.target.value) })} className="w-full accent-blue-500" /></div><div>Uneven text / random fade ({Math.round(nameStampDesigner.textOpacityVariation * 100)}%)<input type="range" min="0" max="1" step="0.05" value={nameStampDesigner.textOpacityVariation} onChange={(e) => setNameStampDesigner({ ...nameStampDesigner, textOpacityVariation: parseFloat(e.target.value) })} className="w-full accent-blue-500" /></div></div>
-          <button onClick={useNameStamp} className="bg-blue-500 text-white hover:bg-blue-400 px-3 py-1.5 rounded text-xs font-bold">Add doctor name stamp</button>
+          <div className="grid grid-cols-2 gap-3 text-[10px] text-slate-400">
+            <div>
+              Fade ink on side
+              <select
+                value={nameStampDesigner.fadeSide}
+                onChange={(e) =>
+                  setNameStampDesigner({
+                    ...nameStampDesigner,
+                    fadeSide: e.target.value as NameStampDesigner["fadeSide"],
+                  })
+                }
+                className="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
+              >
+                <option value="none">No fade</option>
+                <option value="top">Top</option>
+                <option value="right">Right</option>
+                <option value="bottom">Bottom</option>
+                <option value="left">Left</option>
+              </select>
+            </div>
+            <div>
+              Fade strength ({Math.round(nameStampDesigner.fadeStrength * 100)}
+              %)
+              <input
+                type="range"
+                min="0.1"
+                max="1"
+                step="0.05"
+                value={nameStampDesigner.fadeStrength}
+                onChange={(e) =>
+                  setNameStampDesigner({
+                    ...nameStampDesigner,
+                    fadeStrength: parseFloat(e.target.value),
+                  })
+                }
+                className="mt-2 w-full accent-blue-500"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3 text-[10px] text-slate-400">
+            <div>
+              Ink spill ({nameStampDesigner.inkSpill})
+              <input
+                type="range"
+                min="0"
+                max="16"
+                value={nameStampDesigner.inkSpill}
+                onChange={(e) =>
+                  setNameStampDesigner({
+                    ...nameStampDesigner,
+                    inkSpill: parseInt(e.target.value),
+                  })
+                }
+                className="w-full accent-blue-500"
+              />
+            </div>
+            <div>
+              Border{" "}
+              <input
+                type="checkbox"
+                checked={nameStampDesigner.borderEnabled}
+                onChange={(e) =>
+                  setNameStampDesigner({
+                    ...nameStampDesigner,
+                    borderEnabled: e.target.checked,
+                  })
+                }
+                className="ml-1 accent-blue-500"
+              />
+              <input
+                type="range"
+                min="0.5"
+                max="2.5"
+                step="0.1"
+                value={nameStampDesigner.borderWidth}
+                onChange={(e) =>
+                  setNameStampDesigner({
+                    ...nameStampDesigner,
+                    borderWidth: parseFloat(e.target.value),
+                  })
+                }
+                className="w-full accent-blue-500"
+              />
+            </div>
+            <div>
+              Uneven text / random fade (
+              {Math.round(nameStampDesigner.textOpacityVariation * 100)}%)
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={nameStampDesigner.textOpacityVariation}
+                onChange={(e) =>
+                  setNameStampDesigner({
+                    ...nameStampDesigner,
+                    textOpacityVariation: parseFloat(e.target.value),
+                  })
+                }
+                className="w-full accent-blue-500"
+              />
+            </div>
+          </div>
+          <button
+            onClick={useNameStamp}
+            className="bg-blue-500 text-white hover:bg-blue-400 px-3 py-1.5 rounded text-xs font-bold"
+          >
+            Add doctor name stamp
+          </button>
         </div>
 
         <div className="space-y-4">
@@ -2333,25 +3213,48 @@ export default function Home() {
               {stamp.designer && (
                 <div className="border border-emerald-900/60 bg-emerald-950/10 rounded p-2.5 space-y-2.5">
                   <div>
-                    <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wide">Editable stamp content</p>
-                    <p className="text-[10px] text-slate-500">Changes regenerate this designed stamp. Uploaded image stamps remain image-only.</p>
+                    <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wide">
+                      Editable stamp content
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      Changes regenerate this designed stamp. Uploaded image
+                      stamps remain image-only.
+                    </p>
                   </div>
                   <input
                     value={stamp.designer.mainText}
-                    onChange={(e) => handleDesignedStampChange(stamp.id, "mainText", e.target.value)}
+                    onChange={(e) =>
+                      handleDesignedStampChange(
+                        stamp.id,
+                        "mainText",
+                        e.target.value,
+                      )
+                    }
                     placeholder="Main stamp text"
                     className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100 font-bold"
                   />
                   <div className="grid grid-cols-2 gap-2">
                     <input
                       value={stamp.designer.topText}
-                      onChange={(e) => handleDesignedStampChange(stamp.id, "topText", e.target.value)}
+                      onChange={(e) =>
+                        handleDesignedStampChange(
+                          stamp.id,
+                          "topText",
+                          e.target.value,
+                        )
+                      }
                       placeholder="Top text"
                       className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
                     />
                     <input
                       value={stamp.designer.bottomText}
-                      onChange={(e) => handleDesignedStampChange(stamp.id, "bottomText", e.target.value)}
+                      onChange={(e) =>
+                        handleDesignedStampChange(
+                          stamp.id,
+                          "bottomText",
+                          e.target.value,
+                        )
+                      }
                       placeholder="Bottom text"
                       className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
                     />
@@ -2360,13 +3263,25 @@ export default function Home() {
                     <input
                       type="color"
                       value={stamp.designer.color}
-                      onChange={(e) => handleDesignedStampChange(stamp.id, "color", e.target.value)}
+                      onChange={(e) =>
+                        handleDesignedStampChange(
+                          stamp.id,
+                          "color",
+                          e.target.value,
+                        )
+                      }
                       className="w-full h-8 rounded border border-slate-700 bg-slate-800"
                       title="Ink color"
                     />
                     <select
                       value={stamp.designer.shape}
-                      onChange={(e) => handleDesignedStampChange(stamp.id, "shape", e.target.value as StampDesigner["shape"])}
+                      onChange={(e) =>
+                        handleDesignedStampChange(
+                          stamp.id,
+                          "shape",
+                          e.target.value as StampDesigner["shape"],
+                        )
+                      }
                       className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100"
                     >
                       <option value="round">Round</option>
@@ -2374,27 +3289,92 @@ export default function Home() {
                     </select>
                     <div className="text-[10px] text-slate-400">
                       Ink {Math.round(stamp.designer.inkOpacity * 100)}%
-                      <input type="range" min="0.35" max="1" step="0.05" value={stamp.designer.inkOpacity} onChange={(e) => handleDesignedStampChange(stamp.id, "inkOpacity", parseFloat(e.target.value))} className="w-full accent-emerald-500" />
+                      <input
+                        type="range"
+                        min="0.35"
+                        max="1"
+                        step="0.05"
+                        value={stamp.designer.inkOpacity}
+                        onChange={(e) =>
+                          handleDesignedStampChange(
+                            stamp.id,
+                            "inkOpacity",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
                     </div>
                   </div>
                   <div className="text-[10px] text-slate-400">
                     Distress / ink imperfection ({stamp.designer.distress})
-                    <input type="range" min="0" max="12" value={stamp.designer.distress} onChange={(e) => handleDesignedStampChange(stamp.id, "distress", parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                    <input
+                      type="range"
+                      min="0"
+                      max="12"
+                      value={stamp.designer.distress}
+                      onChange={(e) =>
+                        handleDesignedStampChange(
+                          stamp.id,
+                          "distress",
+                          parseInt(e.target.value),
+                        )
+                      }
+                      className="w-full accent-emerald-500"
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-400">
                     <div>
                       Ink spread ({stamp.designer.inkSpread.toFixed(1)})
-                      <input type="range" min="0" max="3" step="0.1" value={stamp.designer.inkSpread} onChange={(e) => handleDesignedStampChange(stamp.id, "inkSpread", parseFloat(e.target.value))} className="w-full accent-emerald-500" />
+                      <input
+                        type="range"
+                        min="0"
+                        max="3"
+                        step="0.1"
+                        value={stamp.designer.inkSpread}
+                        onChange={(e) =>
+                          handleDesignedStampChange(
+                            stamp.id,
+                            "inkSpread",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
                     </div>
                     <div>
                       Edge softness ({stamp.designer.edgeSoftness.toFixed(1)})
-                      <input type="range" min="0" max="1.5" step="0.1" value={stamp.designer.edgeSoftness} onChange={(e) => handleDesignedStampChange(stamp.id, "edgeSoftness", parseFloat(e.target.value))} className="w-full accent-emerald-500" />
+                      <input
+                        type="range"
+                        min="0"
+                        max="1.5"
+                        step="0.1"
+                        value={stamp.designer.edgeSoftness}
+                        onChange={(e) =>
+                          handleDesignedStampChange(
+                            stamp.id,
+                            "edgeSoftness",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-400">
                     <div>
                       Fade ink on side
-                      <select value={stamp.designer.fadeSide} onChange={(e) => handleDesignedStampChange(stamp.id, "fadeSide", e.target.value as StampDesigner["fadeSide"])} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100">
+                      <select
+                        value={stamp.designer.fadeSide}
+                        onChange={(e) =>
+                          handleDesignedStampChange(
+                            stamp.id,
+                            "fadeSide",
+                            e.target.value as StampDesigner["fadeSide"],
+                          )
+                        }
+                        className="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
+                      >
                         <option value="none">No fade</option>
                         <option value="top">Top</option>
                         <option value="right">Right</option>
@@ -2403,8 +3383,23 @@ export default function Home() {
                       </select>
                     </div>
                     <div>
-                      Fade strength ({Math.round(stamp.designer.fadeStrength * 100)}%)
-                      <input type="range" min="0.1" max="1" step="0.05" value={stamp.designer.fadeStrength} onChange={(e) => handleDesignedStampChange(stamp.id, "fadeStrength", parseFloat(e.target.value))} className="mt-2 w-full accent-emerald-500" />
+                      Fade strength (
+                      {Math.round(stamp.designer.fadeStrength * 100)}%)
+                      <input
+                        type="range"
+                        min="0.1"
+                        max="1"
+                        step="0.05"
+                        value={stamp.designer.fadeStrength}
+                        onChange={(e) =>
+                          handleDesignedStampChange(
+                            stamp.id,
+                            "fadeStrength",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="mt-2 w-full accent-emerald-500"
+                      />
                     </div>
                   </div>
                 </div>
@@ -2412,48 +3407,249 @@ export default function Home() {
 
               {stamp.nameDesigner && (
                 <div className="border border-blue-900/60 bg-blue-950/10 rounded p-2.5 space-y-2.5">
-                  <div><p className="text-[10px] font-bold text-blue-300 uppercase tracking-wide">Editable doctor name stamp</p><p className="text-[10px] text-slate-500">Every change regenerates the stamp in the preview immediately.</p></div>
+                  <div>
+                    <p className="text-[10px] font-bold text-blue-300 uppercase tracking-wide">
+                      Editable doctor name stamp
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      Every change regenerates the stamp in the preview
+                      immediately.
+                    </p>
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
-                    {([ ["doctorName", "Doctor name"], ["department", "Department"], ["degree", "Degree / qualification"], ["hospitalName", "Hospital name"] ] as const).map(([key, placeholder]) => <input key={key} value={stamp.nameDesigner![key]} onChange={(e) => handleNameStampChange(stamp.id, key, e.target.value)} placeholder={placeholder} className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100" />)}
+                    {(
+                      [
+                        ["doctorName", "Doctor name"],
+                        ["department", "Department"],
+                        ["degree", "Degree / qualification"],
+                        ["hospitalName", "Hospital name"],
+                      ] as const
+                    ).map(([key, placeholder]) => (
+                      <input
+                        key={key}
+                        value={stamp.nameDesigner![key]}
+                        onChange={(e) =>
+                          handleNameStampChange(stamp.id, key, e.target.value)
+                        }
+                        placeholder={placeholder}
+                        className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100"
+                      />
+                    ))}
                   </div>
                   <div className="grid grid-cols-3 gap-2 text-[10px] text-slate-400">
-                    <div>Ink color<input type="color" value={stamp.nameDesigner.color} onChange={(e) => handleNameStampChange(stamp.id, "color", e.target.value)} className="mt-1 w-full h-7 rounded border border-slate-700 bg-slate-800" /></div>
-                    <div>Shape<select value={stamp.nameDesigner.shape} onChange={(e) => handleNameStampChange(stamp.id, "shape", e.target.value as NameStampDesigner["shape"])} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-1 py-1 text-xs text-slate-100"><option value="rectangle">Rectangle</option><option value="round">Round</option></select></div>
-                    <div>Border<input type="checkbox" checked={stamp.nameDesigner.borderEnabled} onChange={(e) => handleNameStampChange(stamp.id, "borderEnabled", e.target.checked)} className="ml-2 accent-blue-500" /><input type="range" min="0.5" max="2.5" step="0.1" value={stamp.nameDesigner.borderWidth} onChange={(e) => handleNameStampChange(stamp.id, "borderWidth", parseFloat(e.target.value))} className="mt-1 w-full accent-blue-500" /></div>
+                    <div>
+                      Ink color
+                      <input
+                        type="color"
+                        value={stamp.nameDesigner.color}
+                        onChange={(e) =>
+                          handleNameStampChange(
+                            stamp.id,
+                            "color",
+                            e.target.value,
+                          )
+                        }
+                        className="mt-1 w-full h-7 rounded border border-slate-700 bg-slate-800"
+                      />
+                    </div>
+                    <div>
+                      Shape
+                      <select
+                        value={stamp.nameDesigner.shape}
+                        onChange={(e) =>
+                          handleNameStampChange(
+                            stamp.id,
+                            "shape",
+                            e.target.value as NameStampDesigner["shape"],
+                          )
+                        }
+                        className="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-1 py-1 text-xs text-slate-100"
+                      >
+                        <option value="rectangle">Rectangle</option>
+                        <option value="round">Round</option>
+                      </select>
+                    </div>
+                    <div>
+                      Border
+                      <input
+                        type="checkbox"
+                        checked={stamp.nameDesigner.borderEnabled}
+                        onChange={(e) =>
+                          handleNameStampChange(
+                            stamp.id,
+                            "borderEnabled",
+                            e.target.checked,
+                          )
+                        }
+                        className="ml-2 accent-blue-500"
+                      />
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="2.5"
+                        step="0.1"
+                        value={stamp.nameDesigner.borderWidth}
+                        onChange={(e) =>
+                          handleNameStampChange(
+                            stamp.id,
+                            "borderWidth",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="mt-1 w-full accent-blue-500"
+                      />
+                    </div>
                   </div>
                   <div className="grid grid-cols-3 gap-2 text-[10px] text-slate-400">
-                    <div>Spill ({stamp.nameDesigner.inkSpill})<input type="range" min="0" max="16" value={stamp.nameDesigner.inkSpill} onChange={(e) => handleNameStampChange(stamp.id, "inkSpill", parseInt(e.target.value))} className="w-full accent-blue-500" /></div>
-                    <div>Irregularity ({stamp.nameDesigner.sizeMismatch})<input type="range" min="0" max="8" value={stamp.nameDesigner.sizeMismatch} onChange={(e) => handleNameStampChange(stamp.id, "sizeMismatch", parseInt(e.target.value))} className="w-full accent-blue-500" /></div>
-                    <div>Uneven text / random fade ({Math.round(stamp.nameDesigner.textOpacityVariation * 100)}%)<input type="range" min="0" max="1" step="0.05" value={stamp.nameDesigner.textOpacityVariation} onChange={(e) => handleNameStampChange(stamp.id, "textOpacityVariation", parseFloat(e.target.value))} className="w-full accent-blue-500" /></div>
+                    <div>
+                      Spill ({stamp.nameDesigner.inkSpill})
+                      <input
+                        type="range"
+                        min="0"
+                        max="16"
+                        value={stamp.nameDesigner.inkSpill}
+                        onChange={(e) =>
+                          handleNameStampChange(
+                            stamp.id,
+                            "inkSpill",
+                            parseInt(e.target.value),
+                          )
+                        }
+                        className="w-full accent-blue-500"
+                      />
+                    </div>
+                    <div>
+                      Irregularity ({stamp.nameDesigner.sizeMismatch})
+                      <input
+                        type="range"
+                        min="0"
+                        max="8"
+                        value={stamp.nameDesigner.sizeMismatch}
+                        onChange={(e) =>
+                          handleNameStampChange(
+                            stamp.id,
+                            "sizeMismatch",
+                            parseInt(e.target.value),
+                          )
+                        }
+                        className="w-full accent-blue-500"
+                      />
+                    </div>
+                    <div>
+                      Uneven text / random fade (
+                      {Math.round(
+                        stamp.nameDesigner.textOpacityVariation * 100,
+                      )}
+                      %)
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={stamp.nameDesigner.textOpacityVariation}
+                        onChange={(e) =>
+                          handleNameStampChange(
+                            stamp.id,
+                            "textOpacityVariation",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-blue-500"
+                      />
+                    </div>
                   </div>
                   <div className="grid grid-cols-3 gap-2 text-[10px] text-slate-400">
-                    <div>Distress ({stamp.nameDesigner.distress})<input type="range" min="0" max="12" value={stamp.nameDesigner.distress} onChange={(e) => handleNameStampChange(stamp.id, "distress", parseInt(e.target.value))} className="w-full accent-blue-500" /></div>
-                    <div>Ink spread ({stamp.nameDesigner.inkSpread.toFixed(1)})<input type="range" min="0" max="3" step="0.1" value={stamp.nameDesigner.inkSpread} onChange={(e) => handleNameStampChange(stamp.id, "inkSpread", parseFloat(e.target.value))} className="w-full accent-blue-500" /></div>
-                    <div>Edge softness ({stamp.nameDesigner.edgeSoftness.toFixed(1)})<input type="range" min="0" max="1.5" step="0.1" value={stamp.nameDesigner.edgeSoftness} onChange={(e) => handleNameStampChange(stamp.id, "edgeSoftness", parseFloat(e.target.value))} className="w-full accent-blue-500" /></div>
+                    <div>
+                      Distress ({stamp.nameDesigner.distress})
+                      <input
+                        type="range"
+                        min="0"
+                        max="12"
+                        value={stamp.nameDesigner.distress}
+                        onChange={(e) =>
+                          handleNameStampChange(
+                            stamp.id,
+                            "distress",
+                            parseInt(e.target.value),
+                          )
+                        }
+                        className="w-full accent-blue-500"
+                      />
+                    </div>
+                    <div>
+                      Ink spread ({stamp.nameDesigner.inkSpread.toFixed(1)})
+                      <input
+                        type="range"
+                        min="0"
+                        max="3"
+                        step="0.1"
+                        value={stamp.nameDesigner.inkSpread}
+                        onChange={(e) =>
+                          handleNameStampChange(
+                            stamp.id,
+                            "inkSpread",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-blue-500"
+                      />
+                    </div>
+                    <div>
+                      Edge softness (
+                      {stamp.nameDesigner.edgeSoftness.toFixed(1)})
+                      <input
+                        type="range"
+                        min="0"
+                        max="1.5"
+                        step="0.1"
+                        value={stamp.nameDesigner.edgeSoftness}
+                        onChange={(e) =>
+                          handleNameStampChange(
+                            stamp.id,
+                            "edgeSoftness",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-blue-500"
+                      />
+                    </div>
                   </div>
                 </div>
               )}
 
               <div>
-                <label className="block text-[10px] text-slate-500 font-semibold mb-1">Use this shared stamp in</label>
+                <label className="block text-[10px] text-slate-500 font-semibold mb-1">
+                  Use this shared stamp in
+                </label>
                 <div className="flex gap-1.5">
-                  {(["diagnostic", "discharge", "fitness"] as const).map((documentType) => {
-                    const selected = stamp.documentTypes.includes(documentType);
-                    return (
-                      <button
-                        key={documentType}
-                        onClick={() => toggleStampDocumentType(stamp.id, documentType)}
-                        className={`px-2 py-1 rounded text-[10px] font-semibold border ${selected ? "bg-emerald-950/50 border-emerald-500 text-emerald-300" : "bg-slate-800 border-slate-700 text-slate-400"}`}
-                      >
-                        {documentType === "diagnostic" ? "Diagnostic Report" : documentType === "discharge" ? "Discharge Summary" : "Fitness Certificate"}
-                      </button>
-                    );
-                  })}
+                  {(["diagnostic", "discharge", "fitness"] as const).map(
+                    (documentType) => {
+                      const selected =
+                        stamp.documentTypes.includes(documentType);
+                      return (
+                        <button
+                          key={documentType}
+                          onClick={() =>
+                            toggleStampDocumentType(stamp.id, documentType)
+                          }
+                          className={`px-2 py-1 rounded text-[10px] font-semibold border ${selected ? "bg-emerald-950/50 border-emerald-500 text-emerald-300" : "bg-slate-800 border-slate-700 text-slate-400"}`}
+                        >
+                          {documentType === "diagnostic"
+                            ? "Diagnostic Report"
+                            : documentType === "discharge"
+                              ? "Discharge Summary"
+                              : "Fitness Certificate"}
+                        </button>
+                      );
+                    },
+                  )}
                 </div>
               </div>
 
               <div>
-                <label className="block text-[10px] text-slate-500 font-semibold mb-1">Apply stamp on page(s)</label>
+                <label className="block text-[10px] text-slate-500 font-semibold mb-1">
+                  Apply stamp on page(s)
+                </label>
                 <div className="flex flex-wrap gap-1.5">
                   {Array.from({ length: totalPages }).map((_, index) => {
                     const page = index + 1;
@@ -2700,7 +3896,9 @@ export default function Home() {
         <AppSidebar
           workspace={workspace}
           isCollapsed={isSidebarCollapsed}
-          onToggleCollapsed={() => setIsSidebarCollapsed((collapsed) => !collapsed)}
+          onToggleCollapsed={() =>
+            setIsSidebarCollapsed((collapsed) => !collapsed)
+          }
           onOpenEditor={() => setWorkspace("editor")}
           onOpenPatients={openPatientManagement}
         />
@@ -2724,286 +3922,771 @@ export default function Home() {
         ) : (
           /* Workspace Panel Split */
           <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-        {/* Left Form Settings Panel */}
-        <div className="w-full lg:w-5/12 flex flex-col border-r border-slate-800 bg-slate-900/50 overflow-hidden min-h-0">
-          {/* Settings Tabs */}
-          <div className="flex flex-shrink-0 border-b border-slate-800 bg-slate-950 overflow-x-auto scrollbar-none">
-            <button
-              onClick={() => setActiveTab("hospital")}
-              className={`flex-shrink-0 px-5 py-3.5 border-b-2 text-xs font-bold uppercase tracking-wider transition-all ${
-                activeTab === "hospital"
-                  ? "border-emerald-500 text-emerald-400"
-                  : "border-transparent text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              Hospital Details
-            </button>
-            <button
-              onClick={() => setActiveTab("patient")}
-              className={`flex-shrink-0 px-5 py-3.5 border-b-2 text-xs font-bold uppercase tracking-wider transition-all ${
-                activeTab === "patient"
-                  ? "border-emerald-500 text-emerald-400"
-                  : "border-transparent text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              Patient Info
-            </button>
-
-            {docType === "diagnostic" && (
-              <button
-                onClick={() => setActiveTab("findings")}
-                className={`flex-shrink-0 px-5 py-3.5 border-b-2 text-xs font-bold uppercase tracking-wider transition-all ${
-                  activeTab === "findings"
-                    ? "border-emerald-500 text-emerald-400"
-                    : "border-transparent text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Findings & Study
-              </button>
-            )}
-
-            {docType === "fitness" && (
-              <button
-                onClick={() => setActiveTab("findings")}
-                className={`flex-shrink-0 px-5 py-3.5 border-b-2 text-xs font-bold uppercase tracking-wider transition-all ${
-                  activeTab === "findings"
-                    ? "border-emerald-500 text-emerald-400"
-                    : "border-transparent text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Certificate Details
-              </button>
-            )}
-
-            {docType === "discharge" && (
-              <>
+            {/* Left Form Settings Panel */}
+            <div className="w-full lg:w-5/12 flex flex-col border-r border-slate-800 bg-slate-900/50 overflow-hidden min-h-0">
+              {/* Settings Tabs */}
+              <div className="flex flex-shrink-0 border-b border-slate-800 bg-slate-950 overflow-x-auto scrollbar-none">
                 <button
-                  onClick={() => setActiveTab("details")}
+                  onClick={() => setActiveTab("hospital")}
                   className={`flex-shrink-0 px-5 py-3.5 border-b-2 text-xs font-bold uppercase tracking-wider transition-all ${
-                    activeTab === "details"
+                    activeTab === "hospital"
                       ? "border-emerald-500 text-emerald-400"
                       : "border-transparent text-slate-400 hover:text-slate-200"
                   }`}
                 >
-                  Clinical Details
+                  Hospital Details
                 </button>
                 <button
-                  onClick={() => setActiveTab("treatment")}
+                  onClick={() => setActiveTab("patient")}
                   className={`flex-shrink-0 px-5 py-3.5 border-b-2 text-xs font-bold uppercase tracking-wider transition-all ${
-                    activeTab === "treatment"
+                    activeTab === "patient"
                       ? "border-emerald-500 text-emerald-400"
                       : "border-transparent text-slate-400 hover:text-slate-200"
                   }`}
                 >
-                  Stay & Treatment
+                  Patient Info
                 </button>
-                <button
-                  onClick={() => setActiveTab("meds")}
-                  className={`flex-shrink-0 px-5 py-3.5 border-b-2 text-xs font-bold uppercase tracking-wider transition-all ${
-                    activeTab === "meds"
-                      ? "border-emerald-500 text-emerald-400"
-                      : "border-transparent text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  Medications
-                </button>
-              </>
-            )}
 
-            <button
-              onClick={() => setActiveTab("footer")}
-              className={`flex-shrink-0 px-5 py-3.5 border-b-2 text-xs font-bold uppercase tracking-wider transition-all ${
-                activeTab === "footer"
-                  ? "border-emerald-500 text-emerald-400"
-                  : "border-transparent text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              Logo & Watermark
-            </button>
-          </div>
+                {docType === "diagnostic" && (
+                  <button
+                    onClick={() => setActiveTab("findings")}
+                    className={`flex-shrink-0 px-5 py-3.5 border-b-2 text-xs font-bold uppercase tracking-wider transition-all ${
+                      activeTab === "findings"
+                        ? "border-emerald-500 text-emerald-400"
+                        : "border-transparent text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Findings & Study
+                  </button>
+                )}
 
-          {/* Form Settings Content */}
-          <div className="flex-1 overflow-y-auto min-h-0 p-6 space-y-6">
-            {activeTab === "hospital" && (
-              <div className="space-y-6">
-                <div className="bg-slate-950 p-4 rounded-xl border border-slate-850 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <Building2 className="w-4 h-4" />
-                      Hospital Information
-                    </h4>
+                {docType === "fitness" && (
+                  <button
+                    onClick={() => setActiveTab("findings")}
+                    className={`flex-shrink-0 px-5 py-3.5 border-b-2 text-xs font-bold uppercase tracking-wider transition-all ${
+                      activeTab === "findings"
+                        ? "border-emerald-500 text-emerald-400"
+                        : "border-transparent text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Certificate Details
+                  </button>
+                )}
+
+                {docType === "discharge" && (
+                  <>
                     <button
-                      onClick={clearHospitalFields}
-                      className="text-[10px] font-semibold px-2 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded border border-red-500/50"
+                      onClick={() => setActiveTab("details")}
+                      className={`flex-shrink-0 px-5 py-3.5 border-b-2 text-xs font-bold uppercase tracking-wider transition-all ${
+                        activeTab === "details"
+                          ? "border-emerald-500 text-emerald-400"
+                          : "border-transparent text-slate-400 hover:text-slate-200"
+                      }`}
                     >
-                      Clear
+                      Clinical Details
                     </button>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">
-                        Hospital Name
-                      </label>
-                      <input
-                        type="text"
-                        value={data.hospitalName}
-                        onChange={(e) =>
-                          handleInputChange("hospitalName", e.target.value)
-                        }
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">
-                        Legal / Sub Name
-                      </label>
-                      <input
-                        type="text"
-                        value={data.hospitalSub}
-                        onChange={(e) =>
-                          handleInputChange("hospitalSub", e.target.value)
-                        }
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">
-                        Address
-                      </label>
-                      <input
-                        type="text"
-                        value={data.hospitalAddress}
-                        onChange={(e) =>
-                          handleInputChange("hospitalAddress", e.target.value)
-                        }
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">
-                        CIN
-                      </label>
-                      <input
-                        type="text"
-                        value={data.cin}
-                        onChange={(e) =>
-                          handleInputChange("cin", e.target.value)
-                        }
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">
-                        Email
-                      </label>
-                      <input
-                        type="text"
-                        value={data.hospitalEmail}
-                        onChange={(e) =>
-                          handleInputChange("hospitalEmail", e.target.value)
-                        }
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">
-                        Phone
-                      </label>
-                      <input
-                        type="text"
-                        value={data.hospitalPhone}
-                        onChange={(e) =>
-                          handleInputChange("hospitalPhone", e.target.value)
-                        }
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">
-                        Website
-                      </label>
-                      <input
-                        type="text"
-                        value={data.hospitalWebsite}
-                        onChange={(e) =>
-                          handleInputChange("hospitalWebsite", e.target.value)
-                        }
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">
-                        Emergency Helpline
-                      </label>
-                      <input
-                        type="text"
-                        value={data.hospitalEmergency}
-                        onChange={(e) =>
-                          handleInputChange("hospitalEmergency", e.target.value)
-                        }
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                  </div>
-                </div>
+                    <button
+                      onClick={() => setActiveTab("treatment")}
+                      className={`flex-shrink-0 px-5 py-3.5 border-b-2 text-xs font-bold uppercase tracking-wider transition-all ${
+                        activeTab === "treatment"
+                          ? "border-emerald-500 text-emerald-400"
+                          : "border-transparent text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      Stay & Treatment
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("meds")}
+                      className={`flex-shrink-0 px-5 py-3.5 border-b-2 text-xs font-bold uppercase tracking-wider transition-all ${
+                        activeTab === "meds"
+                          ? "border-emerald-500 text-emerald-400"
+                          : "border-transparent text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      Medications
+                    </button>
+                  </>
+                )}
 
-                <div className="bg-slate-950 p-4 rounded-xl border border-slate-850 space-y-4">
-                  <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                    Header Settings
-                  </h4>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Hospital Tagline (under logo)
-                    </label>
-                    <input
-                      type="text"
-                      value={data.hospitalTagline}
-                      onChange={(e) =>
-                        handleInputChange("hospitalTagline", e.target.value)
-                      }
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                      placeholder="e.g. Super Speciality Hospital"
-                    />
-                  </div>
-                </div>
+                <button
+                  onClick={() => setActiveTab("footer")}
+                  className={`flex-shrink-0 px-5 py-3.5 border-b-2 text-xs font-bold uppercase tracking-wider transition-all ${
+                    activeTab === "footer"
+                      ? "border-emerald-500 text-emerald-400"
+                      : "border-transparent text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  Logo & Watermark
+                </button>
+              </div>
 
-                <div className="bg-slate-950 p-4 rounded-xl border border-slate-850 space-y-4">
-                  <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                    Footer Settings
-                  </h4>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Discharge Summary Footer Note
-                    </label>
-                    <textarea
-                      value={data.dischargeFooterNote}
-                      onChange={(e) =>
-                        handleInputChange("dischargeFooterNote", e.target.value)
-                      }
-                      rows={3}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500 resize-none"
-                    />
+              {/* Form Settings Content */}
+              <div className="flex-1 overflow-y-auto min-h-0 p-6 space-y-6">
+                {activeTab === "hospital" && (
+                  <div className="space-y-6">
+                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-850 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Building2 className="w-4 h-4" />
+                          Hospital Information
+                        </h4>
+                        <button
+                          onClick={clearHospitalFields}
+                          className="text-[10px] font-semibold px-2 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded border border-red-500/50"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            Hospital Name
+                          </label>
+                          <input
+                            type="text"
+                            value={data.hospitalName}
+                            onChange={(e) =>
+                              handleInputChange("hospitalName", e.target.value)
+                            }
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            Legal / Sub Name
+                          </label>
+                          <input
+                            type="text"
+                            value={data.hospitalSub}
+                            onChange={(e) =>
+                              handleInputChange("hospitalSub", e.target.value)
+                            }
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            Address
+                          </label>
+                          <input
+                            type="text"
+                            value={data.hospitalAddress}
+                            onChange={(e) =>
+                              handleInputChange(
+                                "hospitalAddress",
+                                e.target.value,
+                              )
+                            }
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            CIN
+                          </label>
+                          <input
+                            type="text"
+                            value={data.cin}
+                            onChange={(e) =>
+                              handleInputChange("cin", e.target.value)
+                            }
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            Email
+                          </label>
+                          <input
+                            type="text"
+                            value={data.hospitalEmail}
+                            onChange={(e) =>
+                              handleInputChange("hospitalEmail", e.target.value)
+                            }
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            Phone
+                          </label>
+                          <input
+                            type="text"
+                            value={data.hospitalPhone}
+                            onChange={(e) =>
+                              handleInputChange("hospitalPhone", e.target.value)
+                            }
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            Website
+                          </label>
+                          <input
+                            type="text"
+                            value={data.hospitalWebsite}
+                            onChange={(e) =>
+                              handleInputChange(
+                                "hospitalWebsite",
+                                e.target.value,
+                              )
+                            }
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            Emergency Helpline
+                          </label>
+                          <input
+                            type="text"
+                            value={data.hospitalEmergency}
+                            onChange={(e) =>
+                              handleInputChange(
+                                "hospitalEmergency",
+                                e.target.value,
+                              )
+                            }
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-850 space-y-4">
+                      <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                        Header Settings
+                      </h4>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Hospital Tagline (under logo)
+                        </label>
+                        <input
+                          type="text"
+                          value={data.hospitalTagline}
+                          onChange={(e) =>
+                            handleInputChange("hospitalTagline", e.target.value)
+                          }
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                          placeholder="e.g. Super Speciality Hospital"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Emergency Stripe Text
+                        </label>
+                        <input
+                          type="text"
+                          value={data.emergencyStripeText}
+                          onChange={(e) =>
+                            handleInputChange(
+                              "emergencyStripeText",
+                              e.target.value,
+                            )
+                          }
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+                        <div>
+                          <p className="text-xs font-semibold text-slate-300">
+                            Show UHID at top of every page
+                          </p>
+                          <p className="text-[10px] text-slate-500">
+                            Uses the UHID entered in Patient Info.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleInputChange(
+                              "showUhidAtTop",
+                              !data.showUhidAtTop,
+                            )
+                          }
+                          className={`shrink-0 rounded px-3 py-1 text-[10px] font-bold ${
+                            data.showUhidAtTop
+                              ? "bg-emerald-500 text-slate-950"
+                              : "bg-slate-800 text-slate-400"
+                          }`}
+                        >
+                          {data.showUhidAtTop ? "ENABLED" : "DISABLED"}
+                        </button>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Emergency Stripe Width ({data.emergencyStripeWidth}%)
+                        </label>
+                        <input
+                          type="range"
+                          min="20"
+                          max="100"
+                          value={data.emergencyStripeWidth}
+                          onChange={(e) =>
+                            handleInputChange(
+                              "emergencyStripeWidth",
+                              Number(e.target.value),
+                            )
+                          }
+                          className="w-full accent-emerald-500"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            Stripe Background
+                          </label>
+                          <input
+                            type="color"
+                            value={data.emergencyStripeBackground}
+                            onChange={(e) =>
+                              handleInputChange(
+                                "emergencyStripeBackground",
+                                e.target.value,
+                              )
+                            }
+                            className="w-full h-9 rounded border border-slate-700 bg-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            Stripe Text Color
+                          </label>
+                          <input
+                            type="color"
+                            value={data.emergencyStripeTextColor}
+                            onChange={(e) =>
+                              handleInputChange(
+                                "emergencyStripeTextColor",
+                                e.target.value,
+                              )
+                            }
+                            className="w-full h-9 rounded border border-slate-700 bg-slate-900"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-850 space-y-4">
+                      <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                        Footer Settings
+                      </h4>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Discharge Summary Footer Note
+                        </label>
+                        <textarea
+                          value={data.dischargeFooterNote}
+                          onChange={(e) =>
+                            handleInputChange(
+                              "dischargeFooterNote",
+                              e.target.value,
+                            )
+                          }
+                          rows={3}
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500 resize-none"
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            Discharge Footer Brand Name
+                          </label>
+                          <input
+                            type="text"
+                            value={data.dischargeFooterBrand}
+                            onChange={(e) =>
+                              handleInputChange(
+                                "dischargeFooterBrand",
+                                e.target.value,
+                              )
+                            }
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            Fitness Certificate Footer Line
+                          </label>
+                          <input
+                            type="text"
+                            value={data.fitnessFooterText}
+                            onChange={(e) =>
+                              handleInputChange(
+                                "fitnessFooterText",
+                                e.target.value,
+                              )
+                            }
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            Radiology Stamp Label
+                          </label>
+                          <input
+                            type="text"
+                            value={data.radiologyStampLabel}
+                            onChange={(e) =>
+                              handleInputChange(
+                                "radiologyStampLabel",
+                                e.target.value,
+                              )
+                            }
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            Radiology Stamp Subtext
+                          </label>
+                          <input
+                            type="text"
+                            value={data.radiologyStampSubtext}
+                            onChange={(e) =>
+                              handleInputChange(
+                                "radiologyStampSubtext",
+                                e.target.value,
+                              )
+                            }
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {renderLogoWatermarkSettings()}
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                )}
+
+                {activeTab === "patient" && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Patient Name
+                        </label>
+                        <input
+                          type="text"
+                          value={data.patientName}
+                          onChange={(e) =>
+                            handleInputChange("patientName", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Date of Birth (DD/MM/YYYY)
+                        </label>
+                        <input
+                          type="text"
+                          value={data.dob}
+                          onChange={(e) =>
+                            handleInputChange("dob", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                          placeholder="25/03/1996"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Age / Sex (Auto-calculated)
+                        </label>
+                        <div className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-emerald-400 font-semibold flex items-center">
+                          {calculateAge(data.dob, data.admitDate)} Year(s) /{" "}
+                          {data.ageSex.split("/")[1]?.trim() || "Male"}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Gender
+                        </label>
+                        <select
+                          value={data.ageSex.split("/")[1]?.trim() || "Male"}
+                          onChange={(e) =>
+                            handleInputChange(
+                              "ageSex",
+                              `${calculateAge(data.dob, data.admitDate)} Year(s)/${e.target.value}`,
+                            )
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                        >
+                          <option value="Male">Male</option>
+                          <option value="Female">Female</option>
+                          <option value="Other">Other</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          UHID
+                        </label>
+                        <input
+                          type="text"
+                          value={data.uhid}
+                          onChange={(e) =>
+                            handleInputChange("uhid", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          IP No / OP No
+                        </label>
+                        <input
+                          type="text"
+                          value={data.ipNo}
+                          onChange={(e) =>
+                            handleInputChange("ipNo", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                      {docType === "diagnostic" && (
+                        <>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-400 mb-1">
+                              Order Date
+                            </label>
+                            <input
+                              type="text"
+                              value={data.orderDate}
+                              onChange={(e) =>
+                                handleInputChange("orderDate", e.target.value)
+                              }
+                              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-400 mb-1">
+                              Report Date
+                            </label>
+                            <input
+                              type="text"
+                              value={data.reportDate}
+                              onChange={(e) =>
+                                handleInputChange("reportDate", e.target.value)
+                              }
+                              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                            />
+                          </div>
+                        </>
+                      )}
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Admit Date
+                        </label>
+                        <input
+                          type="text"
+                          value={data.admitDate}
+                          onChange={(e) =>
+                            handleInputChange("admitDate", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Discharge Date
+                        </label>
+                        <input
+                          type="text"
+                          value={data.dischargeDateTime}
+                          onChange={(e) =>
+                            handleInputChange(
+                              "dischargeDateTime",
+                              e.target.value,
+                            )
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Doctor Name
+                        </label>
+                        <input
+                          type="text"
+                          value={data.refDoctor}
+                          onChange={(e) =>
+                            handleInputChange("refDoctor", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Aadhar Card
+                        </label>
+                        <input
+                          type="text"
+                          value={data.aadharCard}
+                          onChange={(e) =>
+                            handleInputChange("aadharCard", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Mobile
+                        </label>
+                        <input
+                          type="text"
+                          value={data.mobile}
+                          onChange={(e) =>
+                            handleInputChange("mobile", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Facility
+                        </label>
+                        <input
+                          type="text"
+                          value={data.facility}
+                          onChange={(e) =>
+                            handleInputChange("facility", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Ordering Ward
+                        </label>
+                        <input
+                          type="text"
+                          value={data.orderingBedWard}
+                          onChange={(e) =>
+                            handleInputChange("orderingBedWard", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Current Ward
+                        </label>
+                        <input
+                          type="text"
+                          value={data.currentBedWard}
+                          onChange={(e) =>
+                            handleInputChange("currentBedWard", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Company / Insurance Name
+                        </label>
+                        <input
+                          type="text"
+                          value={data.companyName}
+                          onChange={(e) =>
+                            handleInputChange("companyName", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Address
+                        </label>
+                        <textarea
+                          value={data.address}
+                          onChange={(e) =>
+                            handleInputChange("address", e.target.value)
+                          }
+                          rows={2}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === "findings" && docType === "fitness" && (
+                  <div className="space-y-4">
                     <div>
                       <label className="block text-xs font-semibold text-slate-400 mb-1">
-                        Discharge Footer Brand Name
+                        Certificate Header Title
                       </label>
                       <input
                         type="text"
-                        value={data.dischargeFooterBrand}
+                        value={data.fitTitle}
                         onChange={(e) =>
-                          handleInputChange(
-                            "dischargeFooterBrand",
-                            e.target.value,
-                          )
+                          handleInputChange("fitTitle", e.target.value)
                         }
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none font-bold"
+                        placeholder="e.g. FIT TO TRAVEL CERTIFICATE"
                       />
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-400 mb-1">
-                        Fitness Certificate Footer Line
+                        Fitness Status
+                      </label>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleInputChange("fitStatus", "fit")}
+                          className={`flex-1 py-2 text-xs font-bold rounded ${
+                            data.fitStatus === "fit"
+                              ? "bg-emerald-500 text-slate-950"
+                              : "bg-slate-950 text-slate-400 border border-slate-800"
+                          }`}
+                        >
+                          FIT
+                        </button>
+                        <button
+                          onClick={() =>
+                            handleInputChange("fitStatus", "unfit")
+                          }
+                          className={`flex-1 py-2 text-xs font-bold rounded ${
+                            data.fitStatus === "unfit"
+                              ? "bg-red-500 text-slate-950"
+                              : "bg-slate-950 text-slate-400 border border-slate-800"
+                          }`}
+                        >
+                          UNFIT
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        Fitness Statement Text
+                      </label>
+                      <textarea
+                        value={data.fitStatement}
+                        onChange={(e) =>
+                          handleInputChange("fitStatement", e.target.value)
+                        }
+                        rows={4}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
+                        placeholder="This is to certify that I have conducted..."
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        Clinical Remarks / Recommendation
+                      </label>
+                      <textarea
+                        value={data.fitRemarks}
+                        onChange={(e) =>
+                          handleInputChange("fitRemarks", e.target.value)
+                        }
+                        rows={3}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
+                        placeholder="Standard safety precautions should be followed..."
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        Certificate Footer Text
                       </label>
                       <input
                         type="text"
@@ -3011,2031 +4694,1090 @@ export default function Home() {
                         onChange={(e) =>
                           handleInputChange("fitnessFooterText", e.target.value)
                         }
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        placeholder="e.g. Orchid Medical Centre Pvt. Ltd. • emergency helpline: 911-7100-100"
                       />
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">
-                        Radiology Stamp Label
-                      </label>
-                      <input
-                        type="text"
-                        value={data.radiologyStampLabel}
-                        onChange={(e) =>
-                          handleInputChange(
-                            "radiologyStampLabel",
-                            e.target.value,
-                          )
-                        }
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">
-                        Radiology Stamp Subtext
-                      </label>
-                      <input
-                        type="text"
-                        value={data.radiologyStampSubtext}
-                        onChange={(e) =>
-                          handleInputChange(
-                            "radiologyStampSubtext",
-                            e.target.value,
-                          )
-                        }
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {renderLogoWatermarkSettings()}
-              </div>
-            )}
-
-            {activeTab === "patient" && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Patient Name
-                    </label>
-                    <input
-                      type="text"
-                      value={data.patientName}
-                      onChange={(e) =>
-                        handleInputChange("patientName", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Date of Birth (DD/MM/YYYY)
-                    </label>
-                    <input
-                      type="text"
-                      value={data.dob}
-                      onChange={(e) => handleInputChange("dob", e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                      placeholder="25/03/1996"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Age / Sex (Auto-calculated)
-                    </label>
-                    <div className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-emerald-400 font-semibold flex items-center">
-                      {calculateAge(data.dob, data.admitDate)} Year(s) /{" "}
-                      {data.ageSex.split("/")[1]?.trim() || "Male"}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Gender
-                    </label>
-                    <select
-                      value={data.ageSex.split("/")[1]?.trim() || "Male"}
-                      onChange={(e) =>
-                        handleInputChange(
-                          "ageSex",
-                          `${calculateAge(data.dob, data.admitDate)} Year(s)/${e.target.value}`,
-                        )
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                    >
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
-                      <option value="Other">Other</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      UHID
-                    </label>
-                    <input
-                      type="text"
-                      value={data.uhid}
-                      onChange={(e) =>
-                        handleInputChange("uhid", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      IP No / OP No
-                    </label>
-                    <input
-                      type="text"
-                      value={data.ipNo}
-                      onChange={(e) =>
-                        handleInputChange("ipNo", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
-                  </div>
-                  {docType === "diagnostic" && (
-                    <>
+                    <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-semibold text-slate-400 mb-1">
-                          Order Date
+                          Date of Issue
                         </label>
                         <input
-                          type="text"
-                          value={data.orderDate}
+                          type="date"
+                          value={dateForInput(data.fitDate)}
                           onChange={(e) =>
-                            handleInputChange("orderDate", e.target.value)
+                            handleInputChange(
+                              "fitDate",
+                              dateForCertificate(e.target.value),
+                            )
                           }
                           className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
                         />
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-slate-400 mb-1">
-                          Report Date
+                          Designated Signatory
                         </label>
                         <input
                           type="text"
-                          value={data.reportDate}
+                          value={data.fitSignatory}
                           onChange={(e) =>
-                            handleInputChange("reportDate", e.target.value)
+                            handleInputChange("fitSignatory", e.target.value)
                           }
                           className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
                         />
                       </div>
-                    </>
-                  )}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Admit Date
-                    </label>
-                    <input
-                      type="text"
-                      value={data.admitDate}
-                      onChange={(e) =>
-                        handleInputChange("admitDate", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Discharge Date
-                    </label>
-                    <input
-                      type="text"
-                      value={data.dischargeDateTime}
-                      onChange={(e) =>
-                        handleInputChange("dischargeDateTime", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Doctor Name
-                    </label>
-                    <input
-                      type="text"
-                      value={data.refDoctor}
-                      onChange={(e) =>
-                        handleInputChange("refDoctor", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Aadhar Card
-                    </label>
-                    <input
-                      type="text"
-                      value={data.aadharCard}
-                      onChange={(e) =>
-                        handleInputChange("aadharCard", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Mobile
-                    </label>
-                    <input
-                      type="text"
-                      value={data.mobile}
-                      onChange={(e) =>
-                        handleInputChange("mobile", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Facility
-                    </label>
-                    <input
-                      type="text"
-                      value={data.facility}
-                      onChange={(e) =>
-                        handleInputChange("facility", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Ordering Ward
-                    </label>
-                    <input
-                      type="text"
-                      value={data.orderingBedWard}
-                      onChange={(e) =>
-                        handleInputChange("orderingBedWard", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Current Ward
-                    </label>
-                    <input
-                      type="text"
-                      value={data.currentBedWard}
-                      onChange={(e) =>
-                        handleInputChange("currentBedWard", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Company / Insurance Name
-                    </label>
-                    <input
-                      type="text"
-                      value={data.companyName}
-                      onChange={(e) =>
-                        handleInputChange("companyName", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Address
-                    </label>
-                    <textarea
-                      value={data.address}
-                      onChange={(e) =>
-                        handleInputChange("address", e.target.value)
-                      }
-                      rows={2}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
+                )}
 
-            {activeTab === "findings" && docType === "fitness" && (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    Certificate Header Title
-                  </label>
-                  <input
-                    type="text"
-                    value={data.fitTitle}
-                    onChange={(e) =>
-                      handleInputChange("fitTitle", e.target.value)
-                    }
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none font-bold"
-                    placeholder="e.g. FIT TO TRAVEL CERTIFICATE"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    Fitness Status
-                  </label>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleInputChange("fitStatus", "fit")}
-                      className={`flex-1 py-2 text-xs font-bold rounded ${
-                        data.fitStatus === "fit"
-                          ? "bg-emerald-500 text-slate-950"
-                          : "bg-slate-950 text-slate-400 border border-slate-800"
-                      }`}
-                    >
-                      FIT
-                    </button>
-                    <button
-                      onClick={() => handleInputChange("fitStatus", "unfit")}
-                      className={`flex-1 py-2 text-xs font-bold rounded ${
-                        data.fitStatus === "unfit"
-                          ? "bg-red-500 text-slate-950"
-                          : "bg-slate-950 text-slate-400 border border-slate-800"
-                      }`}
-                    >
-                      UNFIT
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    Fitness Statement Text
-                  </label>
-                  <textarea
-                    value={data.fitStatement}
-                    onChange={(e) =>
-                      handleInputChange("fitStatement", e.target.value)
-                    }
-                    rows={4}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
-                    placeholder="This is to certify that I have conducted..."
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    Clinical Remarks / Recommendation
-                  </label>
-                  <textarea
-                    value={data.fitRemarks}
-                    onChange={(e) =>
-                      handleInputChange("fitRemarks", e.target.value)
-                    }
-                    rows={3}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
-                    placeholder="Standard safety precautions should be followed..."
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    Certificate Footer Text
-                  </label>
-                  <input
-                    type="text"
-                    value={data.fitnessFooterText}
-                    onChange={(e) =>
-                      handleInputChange("fitnessFooterText", e.target.value)
-                    }
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    placeholder="e.g. Orchid Medical Centre Pvt. Ltd. • emergency helpline: 911-7100-100"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Date of Issue
-                    </label>
-                    <input
-                      type="date"
-                      value={dateForInput(data.fitDate)}
-                      onChange={(e) =>
-                        handleInputChange(
-                          "fitDate",
-                          dateForCertificate(e.target.value),
-                        )
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Designated Signatory
-                    </label>
-                    <input
-                      type="text"
-                      value={data.fitSignatory}
-                      onChange={(e) =>
-                        handleInputChange("fitSignatory", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === "findings" && docType === "diagnostic" && (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    Report Study Title
-                  </label>
-                  <input
-                    type="text"
-                    value={data.reportTitle}
-                    onChange={(e) =>
-                      handleInputChange("reportTitle", e.target.value)
-                    }
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    Clinical Indications
-                  </label>
-                  <input
-                    type="text"
-                    value={data.clinicalProfile}
-                    onChange={(e) =>
-                      handleInputChange("clinicalProfile", e.target.value)
-                    }
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                  />
-                </div>
-
-                <div className="pt-4 border-t border-slate-800 space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                      Findings List
-                    </h4>
-                    <button
-                      onClick={addFinding}
-                      className="text-xs bg-slate-800 text-emerald-400 hover:bg-slate-700 px-2.5 py-1 rounded flex items-center gap-1 cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Add Finding
-                    </button>
-                  </div>
-
+                {activeTab === "findings" && docType === "diagnostic" && (
                   <div className="space-y-4">
-                    {data.findingsList.map((item) => (
-                      <div
-                        key={item.id}
-                        className="bg-slate-955 p-3.5 rounded-lg border border-slate-800 space-y-2.5 relative"
-                      >
-                        <div className="flex justify-between items-center gap-2">
-                          <input
-                            type="text"
-                            value={item.label}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        Report Study Title
+                      </label>
+                      <input
+                        type="text"
+                        value={data.reportTitle}
+                        onChange={(e) =>
+                          handleInputChange("reportTitle", e.target.value)
+                        }
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        Clinical Indications
+                      </label>
+                      <input
+                        type="text"
+                        value={data.clinicalProfile}
+                        onChange={(e) =>
+                          handleInputChange("clinicalProfile", e.target.value)
+                        }
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-800 space-y-4">
+                      <div className="flex justify-between items-center">
+                        <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                          Findings List
+                        </h4>
+                        <button
+                          onClick={addFinding}
+                          className="text-xs bg-slate-800 text-emerald-400 hover:bg-slate-700 px-2.5 py-1 rounded flex items-center gap-1 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Add Finding
+                        </button>
+                      </div>
+
+                      <div className="space-y-4">
+                        {data.findingsList.map((item) => (
+                          <div
+                            key={item.id}
+                            className="bg-slate-955 p-3.5 rounded-lg border border-slate-800 space-y-2.5 relative"
+                          >
+                            <div className="flex justify-between items-center gap-2">
+                              <input
+                                type="text"
+                                value={item.label}
+                                onChange={(e) =>
+                                  handleFindingChange(
+                                    item.id,
+                                    "label",
+                                    e.target.value.toUpperCase(),
+                                  )
+                                }
+                                className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs text-emerald-400 font-bold focus:outline-none w-2/3"
+                                placeholder="FINDING LABEL"
+                              />
+                              {!item.isDefault && (
+                                <button
+                                  onClick={() => removeFinding(item.id)}
+                                  className="text-red-400 hover:text-red-300 p-1 cursor-pointer"
+                                  title="Delete finding"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                            <textarea
+                              value={item.value}
+                              onChange={(e) =>
+                                handleFindingChange(
+                                  item.id,
+                                  "value",
+                                  e.target.value,
+                                )
+                              }
+                              rows={3}
+                              className="w-full bg-slate-900 border border-slate-800 rounded p-2 text-xs text-slate-200 focus:outline-none resize-none"
+                              placeholder="Enter details..."
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        Impression Heading
+                      </label>
+                      <input
+                        type="text"
+                        value={data.impressionHeading}
+                        onChange={(e) =>
+                          handleInputChange("impressionHeading", e.target.value)
+                        }
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        placeholder="e.g. IMPRESSION: PLAIN CT OF KUB REVEALS:-"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        IMPRESSION
+                      </label>
+                      <textarea
+                        value={data.impression}
+                        onChange={(e) =>
+                          handleInputChange("impression", e.target.value)
+                        }
+                        rows={3}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        SUGGESTION
+                      </label>
+                      <input
+                        type="text"
+                        value={data.suggestion}
+                        onChange={(e) =>
+                          handleInputChange("suggestion", e.target.value)
+                        }
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                      />
+                    </div>
+                    <div className="pt-4 border-t border-slate-800 space-y-4">
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        Report Saved By
+                      </label>
+                      <input
+                        type="text"
+                        value={data.reportSavedBy}
+                        onChange={(e) =>
+                          handleInputChange("reportSavedBy", e.target.value)
+                        }
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        placeholder="Name (date and time)"
+                      />
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Print Date
+                        </label>
+                        <input
+                          type="text"
+                          value={data.printDateTime}
+                          onChange={(e) =>
+                            handleInputChange("printDateTime", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                          placeholder="DD/MM/YYYY HH:MM:SS"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === "details" && docType === "discharge" && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        Primary Consultant
+                      </label>
+                      <textarea
+                        value={data.primaryConsultant}
+                        onChange={(e) =>
+                          handleInputChange("primaryConsultant", e.target.value)
+                        }
+                        rows={3}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        Cross Consultants
+                      </label>
+                      <input
+                        type="text"
+                        value={data.crossConsultants}
+                        onChange={(e) =>
+                          handleInputChange("crossConsultants", e.target.value)
+                        }
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        Final/Provisional Diagnosis
+                      </label>
+                      <textarea
+                        value={data.finalDiagnosis}
+                        onChange={(e) =>
+                          handleInputChange("finalDiagnosis", e.target.value)
+                        }
+                        rows={2}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Result (Discharge)
+                        </label>
+                        <input
+                          type="text"
+                          value={data.dischargeResult}
+                          onChange={(e) =>
+                            handleInputChange("dischargeResult", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Nature of Treatment
+                        </label>
+                        <input
+                          type="text"
+                          value={data.natureOfTreatment}
+                          onChange={(e) =>
+                            handleInputChange(
+                              "natureOfTreatment",
+                              e.target.value,
+                            )
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Follow-Up Visit Date
+                        </label>
+                        <input
+                          type="date"
+                          value={dateForInput(data.dischargeFollowUpVisitDate)}
+                          onChange={(e) =>
+                            handleInputChange(
+                              "dischargeFollowUpVisitDate",
+                              dateForCertificate(e.target.value),
+                            )
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Prepared By
+                        </label>
+                        <input
+                          type="text"
+                          value={data.preparedBy}
+                          onChange={(e) =>
+                            handleInputChange("preparedBy", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          Verified By
+                        </label>
+                        <input
+                          type="text"
+                          value={data.verifiedBy}
+                          onChange={(e) =>
+                            handleInputChange("verifiedBy", e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-800">
+                      <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2">
+                        History & Admission Indications
+                      </h4>
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            Reason for Admission
+                          </label>
+                          <textarea
+                            value={data.reasonForAdmission}
                             onChange={(e) =>
-                              handleFindingChange(
-                                item.id,
-                                "label",
-                                e.target.value.toUpperCase(),
+                              handleInputChange(
+                                "reasonForAdmission",
+                                e.target.value,
                               )
                             }
-                            className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs text-emerald-400 font-bold focus:outline-none w-2/3"
-                            placeholder="FINDING LABEL"
+                            rows={2}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
                           />
-                          {!item.isDefault && (
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            HOPI
+                          </label>
+                          <textarea
+                            value={data.hopi}
+                            onChange={(e) =>
+                              handleInputChange("hopi", e.target.value)
+                            }
+                            rows={2}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            Past History
+                          </label>
+                          <textarea
+                            value={data.pastHistory}
+                            onChange={(e) =>
+                              handleInputChange("pastHistory", e.target.value)
+                            }
+                            rows={2}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            Family History
+                          </label>
+                          <input
+                            type="text"
+                            value={data.familyHistory}
+                            onChange={(e) =>
+                              handleInputChange("familyHistory", e.target.value)
+                            }
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">
+                            Allergy
+                          </label>
+                          <input
+                            type="text"
+                            value={data.allergy}
+                            onChange={(e) =>
+                              handleInputChange("allergy", e.target.value)
+                            }
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-800">
+                      <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2">
+                        O/E (At Admission) Vitals
+                      </h4>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">
+                            Pulse
+                          </label>
+                          <input
+                            type="text"
+                            value={data.pulse}
+                            onChange={(e) =>
+                              handleInputChange("pulse", e.target.value)
+                            }
+                            className="w-full bg-slate-955 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-100 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">
+                            BP
+                          </label>
+                          <input
+                            type="text"
+                            value={data.bp}
+                            onChange={(e) =>
+                              handleInputChange("bp", e.target.value)
+                            }
+                            className="w-full bg-slate-955 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-100 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">
+                            Temp
+                          </label>
+                          <input
+                            type="text"
+                            value={data.temp}
+                            onChange={(e) =>
+                              handleInputChange("temp", e.target.value)
+                            }
+                            className="w-full bg-slate-955 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-100 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">
+                            Spo2
+                          </label>
+                          <input
+                            type="text"
+                            value={data.spo2}
+                            onChange={(e) =>
+                              handleInputChange("spo2", e.target.value)
+                            }
+                            className="w-full bg-slate-955 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-100 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === "treatment" && docType === "discharge" && (
+                  <div className="space-y-4">
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <label className="block text-xs font-semibold text-slate-400">
+                          Treatment Given List
+                        </label>
+                        <button
+                          onClick={addTreatment}
+                          className="text-xs bg-slate-800 text-emerald-400 hover:bg-slate-700 px-2 py-1 rounded flex items-center gap-1 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Add item
+                        </button>
+                      </div>
+                      <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                        {data.treatmentGiven.map((t, idx) => (
+                          <div key={idx} className="flex gap-2 items-center">
+                            <span className="text-xs text-slate-500 font-bold">
+                              {idx + 1}.
+                            </span>
+                            <input
+                              type="text"
+                              value={t}
+                              onChange={(e) =>
+                                handleTreatmentChange(idx, e.target.value)
+                              }
+                              className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-sm text-slate-100 focus:outline-none"
+                            />
                             <button
-                              onClick={() => removeFinding(item.id)}
-                              className="text-red-400 hover:text-red-300 p-1 cursor-pointer"
-                              title="Delete finding"
+                              onClick={() => removeTreatment(idx)}
+                              className="text-red-400 hover:text-red-300 p-1.5 cursor-pointer"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        Investigations
+                      </label>
+                      <input
+                        type="text"
+                        value={data.investigations}
+                        onChange={(e) =>
+                          handleInputChange("investigations", e.target.value)
+                        }
+                        className="w-full bg-slate-955 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        Course During Stay (Summary)
+                      </label>
+                      <textarea
+                        value={data.courseDuringStay}
+                        onChange={(e) =>
+                          handleInputChange("courseDuringStay", e.target.value)
+                        }
+                        rows={4}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        When and how to obtain urgent care:
+                      </label>
+                      <textarea
+                        value={data.urgentCareInfo}
+                        onChange={(e) =>
+                          handleInputChange("urgentCareInfo", e.target.value)
+                        }
+                        rows={3}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === "meds" && docType === "discharge" && (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <label className="block text-xs font-semibold text-slate-400">
+                        Discharge Medications
+                      </label>
+                      <button
+                        onClick={addMedication}
+                        className="text-xs bg-slate-800 text-emerald-400 hover:bg-slate-700 px-2 py-1 rounded flex items-center gap-1 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Add Med
+                      </button>
+                    </div>
+                    <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+                      {data.medications.map((m, idx) => (
+                        <div
+                          key={idx}
+                          className="bg-slate-955 p-3 rounded-lg border border-slate-800 space-y-2 relative"
+                        >
+                          <button
+                            onClick={() => removeMedication(idx)}
+                            className="absolute right-2 top-2 text-red-400 hover:text-red-300 cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                          <div>
+                            <label className="block text-[10px] text-slate-500 mb-0.5">
+                              Medicine Name
+                            </label>
+                            <input
+                              type="text"
+                              value={m.name}
+                              onChange={(e) =>
+                                handleMedicationChange(
+                                  idx,
+                                  "name",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-11/12 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-100 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-slate-500 mb-0.5">
+                              Instructions
+                            </label>
+                            <input
+                              type="text"
+                              value={m.instruction}
+                              onChange={(e) =>
+                                handleMedicationChange(
+                                  idx,
+                                  "instruction",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-100 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === "footer" && (
+                  <div className="space-y-6">
+                    {renderLogoWatermarkSettings()}
+                    {(docType === "diagnostic" ||
+                      docType === "discharge" ||
+                      docType === "fitness") &&
+                      renderDischargeSummaryStamps()}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right Preview Panel (A4 layout sheets with watermarks overlay) */}
+            <div className="w-full lg:w-7/12 bg-slate-955 p-6 overflow-y-auto space-y-8 flex flex-col items-center">
+              {docType === "fitness" ? (
+                /* Fitness Certificate Preview (1 Page) */
+                <div className="w-full max-w-[210mm] shadow-2xl rounded-sm relative">
+                  <div className="text-center text-xs text-slate-400 mb-2">
+                    A4 Fitness Certificate
+                  </div>
+                  <div
+                    ref={fitSheetRef}
+                    className="bg-white text-black p-[18mm] font-sans shadow-lg mx-auto w-full min-h-[297mm] flex flex-col justify-between relative overflow-hidden"
+                    style={reportPageStyle("11.5px", "1.5")}
+                  >
+                    {renderTopUhid()}
+                    {renderWatermark(1)}
+                    {renderDocumentStamps("fitness", 1)}
+
+                    <div className="relative z-10">
+                      {/* Header */}
+                      <div
+                        className="flex justify-between items-start border-b pb-3 mb-5"
+                        style={{ borderColor: data.reportTheme.border }}
+                      >
+                        <div
+                          className="relative flex items-center min-w-0 flex-1"
+                          style={{ color: data.reportTheme.text }}
+                        >
+                          {renderHeaderBrand("fitness", false)}
+                        </div>
+                        <div
+                          className="text-[9px] text-right space-y-0.5"
+                          style={{ color: data.reportTheme.muted }}
+                        >
+                          <p
+                            className="font-bold"
+                            style={{ color: data.reportTheme.heading }}
+                          >
+                            {data.hospitalSub}
+                          </p>
+                          <p>{data.hospitalAddress}</p>
+                          {data.cin && <p>CIN : {data.cin}</p>}
+                          {(data.hospitalEmail || data.hospitalPhone) && (
+                            <p>
+                              {data.hospitalEmail && `E: ${data.hospitalEmail}`}
+                              {data.hospitalEmail &&
+                                data.hospitalPhone &&
+                                " | "}
+                              {data.hospitalPhone && `T: ${data.hospitalPhone}`}
+                            </p>
                           )}
                         </div>
-                        <textarea
-                          value={item.value}
-                          onChange={(e) =>
-                            handleFindingChange(
-                              item.id,
-                              "value",
-                              e.target.value,
-                            )
-                          }
-                          rows={3}
-                          className="w-full bg-slate-900 border border-slate-800 rounded p-2 text-xs text-slate-200 focus:outline-none resize-none"
-                          placeholder="Enter details..."
-                        />
                       </div>
-                    ))}
-                  </div>
-                </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    Impression Heading
-                  </label>
-                  <input
-                    type="text"
-                    value={data.impressionHeading}
-                    onChange={(e) =>
-                      handleInputChange("impressionHeading", e.target.value)
-                    }
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    placeholder="e.g. IMPRESSION: PLAIN CT OF KUB REVEALS:-"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    IMPRESSION
-                  </label>
-                  <textarea
-                    value={data.impression}
-                    onChange={(e) =>
-                      handleInputChange("impression", e.target.value)
-                    }
-                    rows={3}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    SUGGESTION
-                  </label>
-                  <input
-                    type="text"
-                    value={data.suggestion}
-                    onChange={(e) =>
-                      handleInputChange("suggestion", e.target.value)
-                    }
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                  />
-                </div>
-                <div className="pt-4 border-t border-slate-800 space-y-4">
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    Report Saved By
-                  </label>
-                  <input
-                    type="text"
-                    value={data.reportSavedBy}
-                    onChange={(e) =>
-                      handleInputChange("reportSavedBy", e.target.value)
-                    }
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    placeholder="Name (date and time)"
-                  />
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Print Date
-                    </label>
-                    <input
-                      type="text"
-                      value={data.printDateTime}
-                      onChange={(e) =>
-                        handleInputChange("printDateTime", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                      placeholder="DD/MM/YYYY HH:MM:SS"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === "details" && docType === "discharge" && (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    Primary Consultant
-                  </label>
-                  <textarea
-                    value={data.primaryConsultant}
-                    onChange={(e) =>
-                      handleInputChange("primaryConsultant", e.target.value)
-                    }
-                    rows={3}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    Cross Consultants
-                  </label>
-                  <input
-                    type="text"
-                    value={data.crossConsultants}
-                    onChange={(e) =>
-                      handleInputChange("crossConsultants", e.target.value)
-                    }
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    Final/Provisional Diagnosis
-                  </label>
-                  <textarea
-                    value={data.finalDiagnosis}
-                    onChange={(e) =>
-                      handleInputChange("finalDiagnosis", e.target.value)
-                    }
-                    rows={2}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Result (Discharge)
-                    </label>
-                    <input
-                      type="text"
-                      value={data.dischargeResult}
-                      onChange={(e) =>
-                        handleInputChange("dischargeResult", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Nature of Treatment
-                    </label>
-                    <input
-                      type="text"
-                      value={data.natureOfTreatment}
-                      onChange={(e) =>
-                        handleInputChange("natureOfTreatment", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Follow-Up Visit Date
-                    </label>
-                    <input
-                      type="date"
-                      value={dateForInput(data.dischargeFollowUpVisitDate)}
-                      onChange={(e) =>
-                        handleInputChange(
-                          "dischargeFollowUpVisitDate",
-                          dateForCertificate(e.target.value),
-                        )
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Prepared By
-                    </label>
-                    <input
-                      type="text"
-                      value={data.preparedBy}
-                      onChange={(e) =>
-                        handleInputChange("preparedBy", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      Verified By
-                    </label>
-                    <input
-                      type="text"
-                      value={data.verifiedBy}
-                      onChange={(e) =>
-                        handleInputChange("verifiedBy", e.target.value)
-                      }
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-slate-800">
-                  <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2">
-                    History & Admission Indications
-                  </h4>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">
-                        Reason for Admission
-                      </label>
-                      <textarea
-                        value={data.reasonForAdmission}
-                        onChange={(e) =>
-                          handleInputChange(
-                            "reasonForAdmission",
-                            e.target.value,
-                          )
-                        }
-                        rows={2}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">
-                        HOPI
-                      </label>
-                      <textarea
-                        value={data.hopi}
-                        onChange={(e) =>
-                          handleInputChange("hopi", e.target.value)
-                        }
-                        rows={2}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">
-                        Past History
-                      </label>
-                      <textarea
-                        value={data.pastHistory}
-                        onChange={(e) =>
-                          handleInputChange("pastHistory", e.target.value)
-                        }
-                        rows={2}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">
-                        Family History
-                      </label>
-                      <input
-                        type="text"
-                        value={data.familyHistory}
-                        onChange={(e) =>
-                          handleInputChange("familyHistory", e.target.value)
-                        }
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">
-                        Allergy
-                      </label>
-                      <input
-                        type="text"
-                        value={data.allergy}
-                        onChange={(e) =>
-                          handleInputChange("allergy", e.target.value)
-                        }
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-slate-800">
-                  <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2">
-                    O/E (At Admission) Vitals
-                  </h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">
-                        Pulse
-                      </label>
-                      <input
-                        type="text"
-                        value={data.pulse}
-                        onChange={(e) =>
-                          handleInputChange("pulse", e.target.value)
-                        }
-                        className="w-full bg-slate-955 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-100 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">
-                        BP
-                      </label>
-                      <input
-                        type="text"
-                        value={data.bp}
-                        onChange={(e) =>
-                          handleInputChange("bp", e.target.value)
-                        }
-                        className="w-full bg-slate-955 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-100 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">
-                        Temp
-                      </label>
-                      <input
-                        type="text"
-                        value={data.temp}
-                        onChange={(e) =>
-                          handleInputChange("temp", e.target.value)
-                        }
-                        className="w-full bg-slate-955 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-100 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">
-                        Spo2
-                      </label>
-                      <input
-                        type="text"
-                        value={data.spo2}
-                        onChange={(e) =>
-                          handleInputChange("spo2", e.target.value)
-                        }
-                        className="w-full bg-slate-955 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-100 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === "treatment" && docType === "discharge" && (
-              <div className="space-y-4">
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="block text-xs font-semibold text-slate-400">
-                      Treatment Given List
-                    </label>
-                    <button
-                      onClick={addTreatment}
-                      className="text-xs bg-slate-800 text-emerald-400 hover:bg-slate-700 px-2 py-1 rounded flex items-center gap-1 cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Add item
-                    </button>
-                  </div>
-                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                    {data.treatmentGiven.map((t, idx) => (
-                      <div key={idx} className="flex gap-2 items-center">
-                        <span className="text-xs text-slate-500 font-bold">
-                          {idx + 1}.
+                      <div
+                        className="flex justify-between items-center px-3 py-1.5 mb-8 font-bold"
+                        style={reportSectionStyle()}
+                      >
+                        <span>FITNESS / MEDICAL CERTIFICATE</span>
+                        <span className="text-[9px] text-gray-500">
+                          (OFFICIAL RECORD)
                         </span>
-                        <input
-                          type="text"
-                          value={t}
-                          onChange={(e) =>
-                            handleTreatmentChange(idx, e.target.value)
-                          }
-                          className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-sm text-slate-100 focus:outline-none"
-                        />
-                        <button
-                          onClick={() => removeTreatment(idx)}
-                          className="text-red-400 hover:text-red-300 p-1.5 cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
                       </div>
-                    ))}
-                  </div>
-                </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    Investigations
-                  </label>
-                  <input
-                    type="text"
-                    value={data.investigations}
-                    onChange={(e) =>
-                      handleInputChange("investigations", e.target.value)
-                    }
-                    className="w-full bg-slate-955 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    Course During Stay (Summary)
-                  </label>
-                  <textarea
-                    value={data.courseDuringStay}
-                    onChange={(e) =>
-                      handleInputChange("courseDuringStay", e.target.value)
-                    }
-                    rows={4}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none resize-none"
-                  />
-                </div>
-              </div>
-            )}
-
-            {activeTab === "meds" && docType === "discharge" && (
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <label className="block text-xs font-semibold text-slate-400">
-                    Discharge Medications
-                  </label>
-                  <button
-                    onClick={addMedication}
-                    className="text-xs bg-slate-800 text-emerald-400 hover:bg-slate-700 px-2 py-1 rounded flex items-center gap-1 cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add Med
-                  </button>
-                </div>
-                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-                  {data.medications.map((m, idx) => (
-                    <div
-                      key={idx}
-                      className="bg-slate-955 p-3 rounded-lg border border-slate-800 space-y-2 relative"
-                    >
-                      <button
-                        onClick={() => removeMedication(idx)}
-                        className="absolute right-2 top-2 text-red-400 hover:text-red-300 cursor-pointer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                      <div>
-                        <label className="block text-[10px] text-slate-500 mb-0.5">
-                          Medicine Name
-                        </label>
-                        <input
-                          type="text"
-                          value={m.name}
-                          onChange={(e) =>
-                            handleMedicationChange(idx, "name", e.target.value)
-                          }
-                          className="w-11/12 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-100 focus:outline-none"
-                        />
+                      {/* Document Title */}
+                      <div className="text-center mb-8">
+                        <h3 className="text-[14px] font-black text-gray-900 underline tracking-wide uppercase">
+                          {data.fitTitle}
+                        </h3>
+                        <p className="text-[10px] text-gray-500 uppercase tracking-wider font-bold mt-1">
+                          TO WHOMSOEVER IT MAY CONCERN
+                        </p>
                       </div>
-                      <div>
-                        <label className="block text-[10px] text-slate-500 mb-0.5">
-                          Instructions
-                        </label>
-                        <input
-                          type="text"
-                          value={m.instruction}
-                          onChange={(e) =>
-                            handleMedicationChange(
-                              idx,
-                              "instruction",
-                              e.target.value,
-                            )
-                          }
-                          className="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-100 focus:outline-none"
-                        />
+
+                      {/* Patient Details Grid (Simplified) */}
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-2 border border-gray-200 rounded-sm p-4 mb-6 bg-gray-50/50">
+                        <div>
+                          <span className="font-semibold text-gray-700">
+                            Patient Name:
+                          </span>{" "}
+                          <span className="font-bold text-gray-900">
+                            {data.patientName}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="font-semibold text-gray-700">
+                            UHID:
+                          </span>{" "}
+                          <span className="font-bold text-gray-900">
+                            {data.uhid}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="font-semibold text-gray-700">
+                            Age / Sex:
+                          </span>{" "}
+                          <span className="font-bold text-gray-900">
+                            {calculateAge(data.dob, data.admitDate)} Year(s) /{" "}
+                            {data.ageSex.split("/")[1]?.trim() || "Male"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="font-semibold text-gray-700">
+                            Mobile:
+                          </span>{" "}
+                          <span className="font-bold text-gray-900">
+                            {data.mobile}
+                          </span>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="font-semibold text-gray-700">
+                            Address:
+                          </span>{" "}
+                          <span className="font-bold text-gray-900 leading-normal">
+                            {data.address}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
-            {activeTab === "footer" && (
-              <div className="space-y-6">
-                {renderLogoWatermarkSettings()}
-                {(docType === "diagnostic" || docType === "discharge" || docType === "fitness") &&
-                  renderDischargeSummaryStamps()}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right Preview Panel (A4 layout sheets with watermarks overlay) */}
-        <div className="w-full lg:w-7/12 bg-slate-955 p-6 overflow-y-auto space-y-8 flex flex-col items-center">
-          {docType === "fitness" ? (
-            /* Fitness Certificate Preview (1 Page) */
-            <div className="w-full max-w-[210mm] shadow-2xl rounded-sm relative">
-              <div className="text-center text-xs text-slate-400 mb-2">
-                A4 Fitness Certificate
-              </div>
-              <div
-                ref={fitSheetRef}
-                className="bg-white text-black p-[18mm] font-sans shadow-lg mx-auto w-full min-h-[297mm] flex flex-col justify-between relative overflow-hidden"
-                style={reportPageStyle("11.5px", "1.5")}
-              >
-                {renderWatermark(1)}
-                {renderDocumentStamps("fitness", 1)}
-
-                <div className="relative z-10">
-                  {/* Header */}
-                  <div
-                    className="flex justify-between items-start border-b pb-3 mb-5"
-                    style={{ borderColor: data.reportTheme.border }}
-                  >
-                    <div
-                      className="relative flex items-center min-w-0 flex-1"
-                      style={{ color: data.reportTheme.text }}
-                    >
-                      {renderHeaderBrand(false)}
-                    </div>
-                    <div
-                      className="text-[9px] text-right space-y-0.5"
-                      style={{ color: data.reportTheme.muted }}
-                    >
-                      <p
-                        className="font-bold"
-                        style={{ color: data.reportTheme.heading }}
-                      >
-                        {data.hospitalSub}
-                      </p>
-                      <p>{data.hospitalAddress}</p>
-                      {data.cin && <p>CIN : {data.cin}</p>}
-                      {(data.hospitalEmail || data.hospitalPhone) && (
+                      {/* Certificate Statement */}
+                      <div className="space-y-4 text-justify leading-relaxed text-[12px] text-gray-800">
                         <p>
-                          {data.hospitalEmail && `E: ${data.hospitalEmail}`}
-                          {data.hospitalEmail && data.hospitalPhone && " | "}
-                          {data.hospitalPhone && `T: ${data.hospitalPhone}`}
+                          This is to certify that I have conducted a clinical
+                          examination and medical evaluation of
+                          <strong> {data.patientName}</strong>, aged{" "}
+                          <strong>
+                            {calculateAge(data.dob, data.admitDate)} Year(s)
+                          </strong>
+                          , who has been registered under UHID
+                          <strong> {data.uhid}</strong>.
                         </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div
-                    className="flex justify-between items-center px-3 py-1.5 mb-8 font-bold"
-                    style={reportSectionStyle()}
-                  >
-                    <span>FITNESS / MEDICAL CERTIFICATE</span>
-                    <span className="text-[9px] text-gray-500">
-                      (OFFICIAL RECORD)
-                    </span>
-                  </div>
-
-                  {/* Document Title */}
-                  <div className="text-center mb-8">
-                    <h3 className="text-[14px] font-black text-gray-900 underline tracking-wide uppercase">
-                      {data.fitTitle}
-                    </h3>
-                    <p className="text-[10px] text-gray-500 uppercase tracking-wider font-bold mt-1">
-                      TO WHOMSOEVER IT MAY CONCERN
-                    </p>
-                  </div>
-
-                  {/* Patient Details Grid (Simplified) */}
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-2 border border-gray-200 rounded-sm p-4 mb-6 bg-gray-50/50">
-                    <div>
-                      <span className="font-semibold text-gray-700">
-                        Patient Name:
-                      </span>{" "}
-                      <span className="font-bold text-gray-900">
-                        {data.patientName}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="font-semibold text-gray-700">UHID:</span>{" "}
-                      <span className="font-bold text-gray-900">
-                        {data.uhid}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="font-semibold text-gray-700">
-                        Age / Sex:
-                      </span>{" "}
-                      <span className="font-bold text-gray-900">
-                        {calculateAge(data.dob, data.admitDate)} Year(s) /{" "}
-                        {data.ageSex.split("/")[1]?.trim() || "Male"}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="font-semibold text-gray-700">
-                        Mobile:
-                      </span>{" "}
-                      <span className="font-bold text-gray-900">
-                        {data.mobile}
-                      </span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="font-semibold text-gray-700">
-                        Address:
-                      </span>{" "}
-                      <span className="font-bold text-gray-900 leading-normal">
-                        {data.address}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Certificate Statement */}
-                  <div className="space-y-4 text-justify leading-relaxed text-[12px] text-gray-800">
-                    <p>
-                      This is to certify that I have conducted a clinical
-                      examination and medical evaluation of
-                      <strong> {data.patientName}</strong>, aged{" "}
-                      <strong>{calculateAge(data.dob, data.admitDate)} Year(s)</strong>, who has
-                      been registered under UHID
-                      <strong> {data.uhid}</strong>.
-                    </p>
-                    <p>
-                      Based on my assessment, clinical history, and physical
-                      measurements, I hereby declare that the patient is
-                      <span
-                        className={`inline-block mx-1.5 px-2 py-0.5 rounded font-black text-[11px] ${
-                          data.fitStatus === "fit"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-red-100 text-red-800"
-                        }`}
-                      >
-                        {data.fitStatus === "fit" ? "FIT" : "UNFIT"}
-                      </span>
-                      {data.fitStatement}
-                    </p>
-                    {data.fitRemarks && (
-                      <p className="border-l-4 border-gray-300 pl-3 italic text-gray-600">
-                        <strong>Remarks:</strong> {data.fitRemarks}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Signatures & Footer */}
-                <div className="relative z-10">
-                  <div className="flex justify-between items-end">
-                    <div>
-                      <p className="text-[10px] text-gray-500">
-                        Date of Issue:
-                      </p>
-                      <p className="text-sm font-bold text-gray-800">
-                        {data.fitDate}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <div className="w-48 border-b border-gray-400 mb-1.5"></div>
-                      <p className="text-[11px] font-bold text-gray-800">
-                        {data.fitSignatory}
-                      </p>
-                      <p className="text-[9px] text-gray-400">
-                        Authorized Signatory
-                      </p>
-                    </div>
-                  </div>
-                  <div className="border-t border-gray-300 mt-5 pt-4">
-                    <div className="text-center text-[8px] text-gray-400">
-                      {data.fitnessFooterText}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : docType === "diagnostic" ? (
-            /* Diagnostic Report Preview (1 Page) */
-            <div className="w-full max-w-[210mm] shadow-2xl rounded-sm relative">
-              <div className="text-center text-xs text-slate-400 mb-2">
-                A4 Diagnostic Sheet
-              </div>
-              <div
-                ref={diagSheetRef}
-                className="bg-white text-black p-[15mm] font-sans shadow-lg mx-auto w-full min-h-[297mm] flex flex-col justify-between relative overflow-hidden"
-                style={reportPageStyle("11px", "1.4")}
-              >
-                {renderWatermark(1)}
-                {renderDocumentStamps("diagnostic", 1)}
-
-                <div className="relative z-10">
-                  {/* Header */}
-                  <div
-                    className="flex justify-between items-start border-b pb-3 mb-4"
-                    style={{ borderColor: data.reportTheme.border }}
-                  >
-                    <div
-                      className="relative flex items-center min-w-0 flex-1"
-                      style={{ color: data.reportTheme.text }}
-                    >
-                      {renderHeaderBrand(false)}
-                    </div>
-                    <div
-                      className="text-[9px] text-right space-y-0.5"
-                      style={{ color: data.reportTheme.muted }}
-                    >
-                      <p
-                        className="font-bold"
-                        style={{ color: data.reportTheme.heading }}
-                      >
-                        {data.hospitalSub}
-                      </p>
-                      <p>{data.hospitalAddress}</p>
-                      {data.cin && <p>CIN : {data.cin}</p>}
-                      {(data.hospitalEmail || data.hospitalPhone) && (
                         <p>
-                          {data.hospitalEmail && `E: ${data.hospitalEmail}`}
-                          {data.hospitalEmail && data.hospitalPhone && " | "}
-                          {data.hospitalPhone && `T: ${data.hospitalPhone}`}
+                          Based on my assessment, clinical history, and physical
+                          measurements, I hereby declare that the patient is
+                          <span
+                            className={`inline-block mx-1.5 px-2 py-0.5 rounded font-black text-[11px] ${
+                              data.fitStatus === "fit"
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "bg-red-100 text-red-800"
+                            }`}
+                          >
+                            {data.fitStatus === "fit" ? "FIT" : "UNFIT"}
+                          </span>
+                          {data.fitStatement}
                         </p>
-                      )}
-                      {data.hospitalWebsite && (
-                        <p>W: {data.hospitalWebsite}</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div
-                    className="flex justify-between items-center px-3 py-1 mb-4 font-bold"
-                    style={reportSectionStyle()}
-                  >
-                    <span>DIAGNOSTIC REPORTS</span>
-                    <span className="text-[9px] text-gray-500">
-                      (FOR DIAGNOSTIC REPORTS ONLY)
-                    </span>
-                  </div>
-
-                  {/* Patient Grid */}
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 border border-gray-300 rounded-sm p-3 mb-4 text-[10px]">
-                    <div className="grid grid-cols-3 gap-x-2 items-start">
-                      <span className="font-semibold text-gray-700">
-                        Patient Name
-                      </span>
-                      <span className="col-span-2 font-bold break-words">
-                        : {data.patientName}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-x-2 items-start">
-                      <span className="font-semibold text-gray-700">IP No</span>
-                      <span className="col-span-2 font-bold">
-                        : {data.ipNo}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-x-2 items-start">
-                      <span className="font-semibold text-gray-700">
-                        Age/Sex
-                      </span>
-                      <span className="col-span-2 font-bold">
-                        : {calculateAge(data.dob, data.admitDate)} Year(s) /{" "}
-                        {data.ageSex.split("/")[1]?.trim() || "Male"}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-x-2 items-start">
-                      <span className="font-semibold text-gray-700">
-                        Order Date
-                      </span>
-                      <span className="col-span-2 font-bold">
-                        : {data.orderDate}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-x-2 items-start">
-                      <span className="font-semibold text-gray-700">UHID</span>
-                      <span className="col-span-2 font-bold">
-                        : {data.uhid}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-x-2 items-start">
-                      <span className="font-semibold text-gray-700">
-                        Report Date
-                      </span>
-                      <span className="col-span-2 font-bold">
-                        : {data.reportDate}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-x-2 items-start">
-                      <span className="font-semibold text-gray-700">
-                        Ref. Doctor
-                      </span>
-                      <span className="col-span-2 font-bold break-words">
-                        : {data.refDoctor}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-x-2 items-start">
-                      <span className="font-semibold text-gray-700">
-                        Facility
-                      </span>
-                      <span className="col-span-2 font-bold">
-                        : {data.facility}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-x-2 items-start">
-                      <span className="font-semibold text-gray-700">
-                        Aadhar Card
-                      </span>
-                      <span className="col-span-2 font-bold">
-                        : {data.aadharCard}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-x-2 items-start">
-                      <span className="font-semibold text-gray-700">DOB</span>
-                      <span className="col-span-2 font-bold">: {data.dob}</span>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-x-2 items-start">
-                      <span className="font-semibold text-gray-700">
-                        Address
-                      </span>
-                      <span className="col-span-2 font-bold break-words leading-tight">
-                        : {data.address}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-x-2 items-start">
-                      <span className="font-semibold text-gray-700">
-                        Mobile
-                      </span>
-                      <span className="col-span-2 font-bold">
-                        : {data.mobile}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-x-2 items-start">
-                      <span className="font-semibold text-gray-700">
-                        Company Name
-                      </span>
-                      <span className="col-span-2 font-bold break-words">
-                        : {data.companyName}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-x-2 items-start">
-                      <span className="font-semibold text-gray-700">
-                        Ordering Bed/Ward
-                      </span>
-                      <span className="col-span-2 font-bold break-words">
-                        : {data.orderingBedWard}
-                      </span>
-                    </div>
-
-                    <div></div>
-                    <div className="grid grid-cols-3 gap-x-2 items-start">
-                      <span className="font-semibold text-gray-700">
-                        Current Bed/Ward
-                      </span>
-                      <span className="col-span-2 font-bold break-words">
-                        : {data.currentBedWard}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Title & Findings */}
-                  <div className="mb-4">
-                    <h4 className="font-bold underline text-center uppercase mb-3">
-                      {data.reportTitle}
-                    </h4>
-                    <p className="mb-3 font-semibold">
-                      Clinical profile:{" "}
-                      <span className="font-normal">
-                        {data.clinicalProfile}
-                      </span>
-                    </p>
-
-                    <div className="space-y-3 mt-4 text-justify">
-                      <h5 className="font-bold underline">Findings:</h5>
-                      {data.findingsList.map(
-                        (item) =>
-                          item.value && (
-                            <div key={item.id}>
-                              <span className="font-bold">{item.label} : </span>
-                              <span>{item.value}</span>
-                            </div>
-                          ),
-                      )}
-                    </div>
-
-                    {data.impression && (
-                      <div className="mt-5">
-                        <p className="font-bold underline">
-                          {data.impressionHeading}
-                        </p>
-                        <p className="font-bold pl-4 mt-1 uppercase">
-                          - {data.impression}
-                        </p>
-                      </div>
-                    )}
-
-                    {data.suggestion && (
-                      <div className="mt-5">
-                        <p className="font-bold underline">SUGGESTION:</p>
-                        <p className="pl-4 mt-1">- {data.suggestion}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Footer */}
-                <div className="relative z-10">
-                  <div className="flex justify-between items-end">
-                    <p className="text-[10px] text-gray-500">
-                      Report Saved By: {data.reportSavedBy}
-                    </p>
-                    <div className="text-right">
-                      <div className="w-28 border-b border-gray-400 mb-1"></div>
-                      <p className="text-[9px] font-bold text-gray-700">
-                        Authorized Signatory
-                      </p>
-                    </div>
-                  </div>
-                  <div className="border-t border-gray-300 mt-5 pt-4">
-                    <div className="flex justify-between text-[8px] text-gray-400">
-                      {data.printDateTime.trim() && (
-                        <p>Print Date: {data.printDateTime}</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            /* Discharge Summary Preview (3+ Pages) */
-            <div className="space-y-8 w-full max-w-[210mm]">
-              {/* PAGE 1 */}
-              <div className="shadow-2xl rounded-sm relative">
-                <div className="text-center text-xs text-slate-400 mb-2">
-                  A4 Discharge Summary
-                </div>
-                <div
-                  ref={page1Ref}
-                  className="bg-white text-black p-[12mm] font-sans shadow-lg mx-auto w-full min-h-[297mm] flex flex-col justify-between relative overflow-hidden"
-                  style={reportPageStyle("10.5px", "1.35")}
-                >
-                  {renderWatermark(1)}
-                  {renderDocumentStamps("discharge", 1)}
-
-                  <div className="relative z-10">
-                    {/* Header */}
-                    <div
-                      className="flex justify-between items-start border-b pb-2 mb-3"
-                      style={{ borderColor: data.reportTheme.border }}
-                    >
-                      <div
-                        className="relative flex items-center min-w-0 flex-1"
-                        style={{ color: data.reportTheme.text }}
-                      >
-                        {renderHeaderBrand(true)}
-                      </div>
-                      <div
-                        className="text-[8px] text-right leading-tight"
-                        style={{ color: data.reportTheme.muted }}
-                      >
-                        <p
-                          className="font-bold"
-                          style={{ color: data.reportTheme.heading }}
-                        >
-                          {data.hospitalSub}
-                        </p>
-                        <p>{data.hospitalAddress}</p>
-                        {(data.hospitalEmail || data.hospitalPhone) && (
-                          <p>
-                            {data.hospitalEmail && `E: ${data.hospitalEmail}`}
-                            {data.hospitalEmail && data.hospitalPhone && " | "}
-                            {data.hospitalPhone && `T: ${data.hospitalPhone}`}
+                        {data.fitRemarks && (
+                          <p className="border-l-4 border-gray-300 pl-3 italic text-gray-600">
+                            <strong>Remarks:</strong> {data.fitRemarks}
                           </p>
                         )}
                       </div>
                     </div>
 
-                    <div
-                      className="flex justify-between items-center px-2.5 py-0.5 rounded-sm mb-3 font-bold text-[11px]"
-                      style={reportSectionStyle()}
-                    >
-                      <span>DISCHARGE SUMMARY</span>
-                    </div>
-
-                    {/* Patient detail block */}
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 border border-gray-350 p-2.5 rounded-sm mb-4 text-[9.5px]">
-                      <div className="grid grid-cols-3 gap-x-2 items-start">
-                        <span className="font-semibold text-gray-700">
-                          Patient Name
-                        </span>
-                        <span className="col-span-2 font-bold break-words">
-                          : {data.patientName}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-x-2 items-start">
-                        <span className="font-semibold text-gray-700">
-                          IP No
-                        </span>
-                        <span className="col-span-2 font-bold">
-                          : {data.ipNo}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-x-2 items-start">
-                        <span className="font-semibold text-gray-700">
-                          Age/Sex
-                        </span>
-                        <span className="col-span-2 font-bold">
-                          : {calculateAge(data.dob, data.admitDate)} Year(s) /{" "}
-                          {data.ageSex.split("/")[1]?.trim() || "Male"}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-x-2 items-start">
-                        <span className="font-semibold text-gray-700">
-                          Admit Date
-                        </span>
-                        <span className="col-span-2 font-bold">
-                          : {data.admitDate}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-x-2 items-start">
-                        <span className="font-semibold text-gray-700">
-                          Discharge Date
-                        </span>
-                        <span className="col-span-2 font-bold">
-                          : {data.dischargeDateTime}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-x-2 items-start">
-                        <span className="font-semibold text-gray-700">
-                          UHID
-                        </span>
-                        <span className="col-span-2 font-bold">
-                          : {data.uhid}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-x-2 items-start">
-                        <span className="font-semibold text-gray-700">
-                          Doctor Name
-                        </span>
-                        <span className="col-span-2 font-bold break-words">
-                          : {data.refDoctor}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-x-2 items-start">
-                        <span className="font-semibold text-gray-700">
-                          Facility
-                        </span>
-                        <span className="col-span-2 font-bold">
-                          : {data.facility}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-x-2 items-start">
-                        <span className="font-semibold text-gray-700">
-                          Aadhar Card
-                        </span>
-                        <span className="col-span-2 font-bold">
-                          : {data.aadharCard}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-x-2 items-start">
-                        <span className="font-semibold text-gray-700">DOB</span>
-                        <span className="col-span-2 font-bold">
-                          : {data.dob}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-x-2 items-start">
-                        <span className="font-semibold text-gray-700">
-                          Address
-                        </span>
-                        <span className="col-span-2 font-bold break-words leading-tight">
-                          : {data.address}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-x-2 items-start">
-                        <span className="font-semibold text-gray-700">
-                          Mobile
-                        </span>
-                        <span className="col-span-2 font-bold">
-                          : {data.mobile}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-x-2 items-start">
-                        <span className="font-semibold text-gray-700">
-                          Company Name
-                        </span>
-                        <span className="col-span-2 font-bold break-words">
-                          : {data.companyName}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-x-2 items-start">
-                        <span className="font-semibold text-gray-700">
-                          Ordering Bed/Ward
-                        </span>
-                        <span className="col-span-2 font-bold break-words">
-                          : {data.orderingBedWard}
-                        </span>
-                      </div>
-
-                      <div></div>
-                      <div className="grid grid-cols-3 gap-x-2 items-start">
-                        <span className="font-semibold text-gray-700">
-                          Current Bed/Ward
-                        </span>
-                        <span className="col-span-2 font-bold break-words">
-                          : {data.currentBedWard}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Primary & Cross Consultants */}
-                    <div className="space-y-2 mb-3">
-                      <div>
-                        <p className="font-bold underline text-gray-800">
-                          Primary Consultant
-                        </p>
-                        <p className="text-justify font-medium leading-relaxed mt-0.5">
-                          {data.primaryConsultant}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="font-bold underline text-gray-800">
-                          Cross Consultants
-                        </p>
-                        <p className="mt-0.5">{data.crossConsultants}</p>
-                      </div>
-                    </div>
-
-                    {/* Diagnosis & clinical details */}
-                    <div className="space-y-2.5">
-                      <div>
-                        <p className="font-bold underline text-gray-800">
-                          Final / Provisional Diagnosis
-                        </p>
-                        <p className="font-bold text-gray-900 mt-0.5">
-                          {data.finalDiagnosis}
-                        </p>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
+                    {/* Signatures & Footer */}
+                    <div className="relative z-10">
+                      <div className="flex justify-between items-end">
                         <div>
-                          <p className="font-bold underline text-gray-800">
-                            Result
+                          <p className="text-[10px] text-gray-500">
+                            Date of Issue:
                           </p>
-                          <p className="mt-0.5">{data.dischargeResult}</p>
-                        </div>
-                        <div>
-                          <p className="font-bold underline text-gray-800">
-                            Nature of Treatment
+                          <p className="text-sm font-bold text-gray-800">
+                            {data.fitDate}
                           </p>
-                          <p className="mt-0.5">{data.natureOfTreatment}</p>
+                        </div>
+                        <div className="text-right">
+                          <div className="w-48 border-b border-gray-400 mb-1.5"></div>
+                          <p className="text-[11px] font-bold text-gray-800">
+                            {data.fitSignatory}
+                          </p>
+                          <p className="text-[9px] text-gray-400">
+                            Authorized Signatory
+                          </p>
                         </div>
                       </div>
-                      <div>
-                        <p className="font-bold underline text-gray-800">
-                          Reason for admission
-                        </p>
-                        <p className="mt-0.5">{data.reasonForAdmission}</p>
-                      </div>
-                      <div>
-                        <p className="font-bold underline text-gray-800">
-                          HOPI
-                        </p>
-                        <p className="mt-0.5">{data.hopi}</p>
-                      </div>
-                      <div>
-                        <p className="font-bold underline text-gray-800">
-                          Past History
-                        </p>
-                        <p className="mt-0.5">{data.pastHistory}</p>
-                      </div>
-                      <div>
-                        <p className="font-bold underline text-gray-800">
-                          Family History
-                        </p>
-                        <p className="mt-0.5">{data.familyHistory}</p>
-                      </div>
-                      <div>
-                        <p className="font-bold underline text-gray-800">
-                          Allergy
-                        </p>
-                        <p className="mt-0.5">{data.allergy}</p>
-                      </div>
-                    </div>
-
-                    {/* Vitals Table */}
-                    <div className="mt-3">
-                      <p className="font-bold underline text-gray-800 mb-1.5">
-                        O/E (At admission)
-                      </p>
-                      <div className="grid grid-cols-2 border border-gray-300 rounded-sm text-[9.5px]">
-                        <div className="p-1.5 border-r border-b border-gray-300 grid grid-cols-2">
-                          <span className="text-gray-500">Pulse:</span>
-                          <span className="font-bold">{data.pulse}</span>
-                        </div>
-                        <div className="p-1.5 border-b border-gray-300 grid grid-cols-2">
-                          <span className="text-gray-500">Pallor:</span>
-                          <span className="font-bold">{data.pallor}</span>
-                        </div>
-                        <div className="p-1.5 border-r border-b border-gray-300 grid grid-cols-2">
-                          <span className="text-gray-500">Blood Pressure:</span>
-                          <span className="font-bold">{data.bp}</span>
-                        </div>
-                        <div className="p-1.5 border-b border-gray-300 grid grid-cols-2">
-                          <span className="text-gray-500">Cyanosis:</span>
-                          <span className="font-bold">{data.cyanosis}</span>
-                        </div>
-                        <div className="p-1.5 border-r border-gray-300 grid grid-cols-2">
-                          <span className="text-gray-500">Temp:</span>
-                          <span className="font-bold">{data.temp}</span>
-                        </div>
-                        <div className="p-1.5 grid grid-cols-2">
-                          <span className="text-gray-500">Edema:</span>
-                          <span className="font-bold">{data.edema}</span>
+                      <div className="border-t border-gray-300 mt-5 pt-4">
+                        <div className="text-center text-[8px] text-gray-400">
+                          {data.fitnessFooterText}
                         </div>
                       </div>
                     </div>
                   </div>
-
-                  {/* Note Footer */}
-                  <div className="border-t border-gray-300 pt-2 text-[7.5px] text-gray-400 text-center leading-tight relative z-10">
-                    <p className="font-semibold text-gray-500">
-                      {data.dischargeFooterNote}
-                    </p>
-                    <div className="flex justify-between mt-1">
-                      <span>{data.dischargeFooterBrand}</span>
-                      <span className="font-bold">1/{totalPages}</span>
-                    </div>
+                </div>
+              ) : docType === "diagnostic" ? (
+                /* Diagnostic Report Preview (1 Page) */
+                <div className="w-full max-w-[210mm] shadow-2xl rounded-sm relative">
+                  <div className="text-center text-xs text-slate-400 mb-2">
+                    A4 Diagnostic Sheet
                   </div>
-                </div>
-              </div>
+                  <div
+                    ref={diagSheetRef}
+                    className="bg-white text-black p-[15mm] font-sans shadow-lg mx-auto w-full min-h-[297mm] flex flex-col justify-between relative overflow-hidden"
+                    style={reportPageStyle("11px", "1.4")}
+                  >
+                    {renderEmergencyStripe()}
+                    {renderTopUhid()}
+                    {renderWatermark(1)}
+                    {renderDocumentStamps("diagnostic", 1)}
 
-              {/* PAGE 2 */}
-              <div className="shadow-2xl rounded-sm relative">
-                <div className="text-center text-xs text-slate-400 mb-2">
-                  A4 Discharge Summary
-                </div>
-                <div
-                  ref={page2Ref}
-                  className="bg-white text-black p-[12mm] font-sans shadow-lg mx-auto w-full min-h-[297mm] flex flex-col justify-between relative overflow-hidden"
-                  style={reportPageStyle("10.5px", "1.35")}
-                >
-                  {renderWatermark(2)}
-                  {renderDocumentStamps("discharge", 2)}
-
-                  <div className="relative z-10">
-                    <div className="grid grid-cols-3 border border-gray-300 rounded p-2 mb-3 text-[9px]">
-                      <div>
-                        <span className="text-gray-500">Patient Name:</span>{" "}
-                        <span className="font-bold">{data.patientName}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">UHID:</span>{" "}
-                        <span className="font-bold">{data.uhid}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">IP No:</span>{" "}
-                        <span className="font-bold">{data.ipNo}</span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      <div>
-                        <p className="font-bold underline text-gray-800">
-                          Treatment Given:
-                        </p>
-                        <div className="grid grid-cols-3 gap-y-1.5 mt-1 font-semibold text-gray-700">
-                          {data.treatmentGiven.map((t, i) => (
-                            <p key={i}>
-                              {i + 1}. {t}
+                    <div className="relative z-10">
+                      {/* Header */}
+                      <div
+                        className="flex justify-between items-start border-b pb-3 mb-4"
+                        style={{ borderColor: data.reportTheme.border }}
+                      >
+                        <div
+                          className="relative flex items-center min-w-0 flex-1"
+                          style={{ color: data.reportTheme.text }}
+                        >
+                          {renderHeaderBrand("diagnostic", false)}
+                        </div>
+                        <div
+                          className="text-[9px] text-right space-y-0.5"
+                          style={{ color: data.reportTheme.muted }}
+                        >
+                          <p
+                            className="font-bold"
+                            style={{ color: data.reportTheme.heading }}
+                          >
+                            {data.hospitalSub}
+                          </p>
+                          <p>{data.hospitalAddress}</p>
+                          {data.cin && <p>CIN : {data.cin}</p>}
+                          {(data.hospitalEmail || data.hospitalPhone) && (
+                            <p>
+                              {data.hospitalEmail && `E: ${data.hospitalEmail}`}
+                              {data.hospitalEmail &&
+                                data.hospitalPhone &&
+                                " | "}
+                              {data.hospitalPhone && `T: ${data.hospitalPhone}`}
                             </p>
-                          ))}
+                          )}
+                          {data.hospitalWebsite && (
+                            <p>W: {data.hospitalWebsite}</p>
+                          )}
                         </div>
                       </div>
 
-                      <div>
-                        <p className="font-bold underline text-gray-800">
-                          Investigations:
-                        </p>
-                        <p className="mt-0.5 text-gray-700">
-                          {data.investigations}
-                        </p>
+                      <div
+                        className="flex justify-between items-center px-3 py-1 mb-4 font-bold"
+                        style={reportSectionStyle()}
+                      >
+                        <span>DIAGNOSTIC REPORTS</span>
+                        <span className="text-[9px] text-gray-500">
+                          (FOR DIAGNOSTIC REPORTS ONLY)
+                        </span>
                       </div>
 
-                      <div>
-                        <p className="font-bold underline text-gray-800">
-                          COURSE DURING STAY (SUMMARY)
-                        </p>
-                        <p className="mt-0.5 text-justify leading-relaxed">
-                          {data.courseDuringStay}
-                        </p>
-                      </div>
+                      {/* Patient Grid */}
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2 border border-gray-300 rounded-sm p-3 mb-4 text-[10px]">
+                        <div className="grid grid-cols-3 gap-x-2 items-start">
+                          <span className="font-semibold text-gray-700">
+                            Patient Name
+                          </span>
+                          <span className="col-span-2 font-bold break-words">
+                            : {data.patientName}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-x-2 items-start">
+                          <span className="font-semibold text-gray-700">
+                            IP No
+                          </span>
+                          <span className="col-span-2 font-bold">
+                            : {data.ipNo}
+                          </span>
+                        </div>
 
-                      <div>
-                        <p className="font-bold underline text-gray-800">
-                          Procedure done:
-                        </p>
-                        <p className="mt-0.5 text-gray-700">
-                          {data.procedureDone}
-                        </p>
-                      </div>
+                        <div className="grid grid-cols-3 gap-x-2 items-start">
+                          <span className="font-semibold text-gray-700">
+                            Age/Sex
+                          </span>
+                          <span className="col-span-2 font-bold">
+                            : {calculateAge(data.dob, data.admitDate)} Year(s) /{" "}
+                            {data.ageSex.split("/")[1]?.trim() || "Male"}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-x-2 items-start">
+                          <span className="font-semibold text-gray-700">
+                            Order Date
+                          </span>
+                          <span className="col-span-2 font-bold">
+                            : {data.orderDate}
+                          </span>
+                        </div>
 
-                      <div>
-                        <p className="font-bold underline text-gray-800">
-                          When and how to obtain urgent care:
-                        </p>
-                        <p className="mt-0.5 text-gray-700 leading-normal">
-                          {data.urgentCareInfo}
-                        </p>
-                      </div>
+                        <div className="grid grid-cols-3 gap-x-2 items-start">
+                          <span className="font-semibold text-gray-700">
+                            UHID
+                          </span>
+                          <span className="col-span-2 font-bold">
+                            : {data.uhid}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-x-2 items-start">
+                          <span className="font-semibold text-gray-700">
+                            Report Date
+                          </span>
+                          <span className="col-span-2 font-bold">
+                            : {data.reportDate}
+                          </span>
+                        </div>
 
-                      {/* Discharge Medications list */}
-                      <div>
-                        <p className="font-bold underline text-gray-800 mb-1">
-                          DISCHARGE MEDICATION
-                        </p>
-                        <div className="border border-gray-300 rounded-sm overflow-hidden">
-                          <table className="w-full text-left text-[9.5px]">
-                            <thead>
-                              <tr className="bg-gray-100 border-b border-gray-300 font-bold text-gray-700">
-                                <th className="p-1.5 w-10">S.No.</th>
-                                <th className="p-1.5">Medicine Name</th>
-                                <th className="p-1.5">Instructions</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {data.medications.map((m, i) => (
-                                <tr
-                                  key={i}
-                                  className="border-b border-gray-200"
-                                >
-                                  <td className="p-1.5 font-bold">{i + 1}</td>
-                                  <td className="p-1.5 font-bold text-gray-800">
-                                    {m.name}
-                                  </td>
-                                  <td className="p-1.5 text-gray-700">
-                                    {m.instruction}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                        <div className="grid grid-cols-3 gap-x-2 items-start">
+                          <span className="font-semibold text-gray-700">
+                            Ref. Doctor
+                          </span>
+                          <span className="col-span-2 font-bold break-words">
+                            : {data.refDoctor}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-x-2 items-start">
+                          <span className="font-semibold text-gray-700">
+                            Facility
+                          </span>
+                          <span className="col-span-2 font-bold">
+                            : {data.facility}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-x-2 items-start">
+                          <span className="font-semibold text-gray-700">
+                            Aadhar Card
+                          </span>
+                          <span className="col-span-2 font-bold">
+                            : {data.aadharCard}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-x-2 items-start">
+                          <span className="font-semibold text-gray-700">
+                            DOB
+                          </span>
+                          <span className="col-span-2 font-bold">
+                            : {data.dob}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-x-2 items-start">
+                          <span className="font-semibold text-gray-700">
+                            Address
+                          </span>
+                          <span className="col-span-2 font-bold break-words leading-tight">
+                            : {data.address}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-x-2 items-start">
+                          <span className="font-semibold text-gray-700">
+                            Mobile
+                          </span>
+                          <span className="col-span-2 font-bold">
+                            : {data.mobile}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-x-2 items-start">
+                          <span className="font-semibold text-gray-700">
+                            Company Name
+                          </span>
+                          <span className="col-span-2 font-bold break-words">
+                            : {data.companyName}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-x-2 items-start">
+                          <span className="font-semibold text-gray-700">
+                            Ordering Bed/Ward
+                          </span>
+                          <span className="col-span-2 font-bold break-words">
+                            : {data.orderingBedWard}
+                          </span>
+                        </div>
+
+                        <div></div>
+                        <div className="grid grid-cols-3 gap-x-2 items-start">
+                          <span className="font-semibold text-gray-700">
+                            Current Bed/Ward
+                          </span>
+                          <span className="col-span-2 font-bold break-words">
+                            : {data.currentBedWard}
+                          </span>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="font-bold underline text-gray-800">
-                            Special needs:
-                          </p>
-                          <p className="mt-0.5">{data.specialNeeds}</p>
-                        </div>
-                        <div>
-                          <p className="font-bold underline text-gray-800">
-                            Follow up:
-                          </p>
-                          <p className="mt-0.5">{data.dischargeFollowUp}</p>
-                        </div>
-                      </div>
+                      {/* Title & Findings */}
+                      <div className="mb-4">
+                        <h4 className="font-bold underline text-center uppercase mb-3">
+                          {data.reportTitle}
+                        </h4>
+                        <p className="mb-3 font-semibold">
+                          Clinical profile:{" "}
+                          <span className="font-normal">
+                            {data.clinicalProfile}
+                          </span>
+                        </p>
 
-                      <div>
-                        <p className="font-bold underline text-gray-800">
-                          Condition on Discharge:
-                        </p>
-                        <p className="mt-0.5 font-bold text-emerald-700">
-                          {data.conditionOnDischarge}
-                        </p>
+                        <div className="space-y-3 mt-4 text-justify">
+                          <h5 className="font-bold underline">Findings:</h5>
+                          {data.findingsList.map(
+                            (item) =>
+                              item.value && (
+                                <div key={item.id}>
+                                  <span className="font-bold">
+                                    {item.label} :{" "}
+                                  </span>
+                                  <span>{item.value}</span>
+                                </div>
+                              ),
+                          )}
+                        </div>
+
+                        {data.impression && (
+                          <div className="mt-5">
+                            <p className="font-bold underline">
+                              {data.impressionHeading}
+                            </p>
+                            <p className="font-bold pl-4 mt-1 uppercase">
+                              - {data.impression}
+                            </p>
+                          </div>
+                        )}
+
+                        {data.suggestion && (
+                          <div className="mt-5">
+                            <p className="font-bold underline">SUGGESTION:</p>
+                            <p className="pl-4 mt-1">- {data.suggestion}</p>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  </div>
 
-                  {/* Signatures & Footer */}
-                  <div className="relative z-10">
-                    <div className="flex justify-between items-end mb-4 pt-4">
-                      <div>
-                        <div className="w-32 border-b border-gray-300 mb-1"></div>
-                        <p className="text-[9px] font-bold text-gray-700">
-                          Doctor Signature
+                    {/* Footer */}
+                    <div className="relative z-10">
+                      <div className="flex justify-between items-end">
+                        <p className="text-[10px] text-gray-500">
+                          Report Saved By: {data.reportSavedBy}
                         </p>
+                        <div className="text-right">
+                          <div className="w-28 border-b border-gray-400 mb-1"></div>
+                          <p className="text-[9px] font-bold text-gray-700">
+                            Authorized Signatory
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-center bg-gray-50 p-2 border border-gray-200 rounded text-[8px] max-w-[120px]">
-                        <p className="font-bold">{data.radiologyStampLabel}</p>
-                        <p className="text-gray-400">
-                          {data.radiologyStampSubtext}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <div className="w-32 border-b border-gray-300 mb-1"></div>
-                        <p className="text-[9px] font-bold text-gray-700">
-                          Consultant signature
-                        </p>
-                        <p className="text-[8px] text-gray-500">
-                          {data.verifiedBy}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="border-t border-gray-300 pt-2 text-[7.5px] text-gray-400 text-center leading-tight">
-                      <p className="font-semibold text-gray-500">
-                        {data.dischargeFooterNote}
-                      </p>
-                      <div className="flex justify-between mt-1">
-                        <span>{data.dischargeFooterBrand}</span>
-                        <span className="font-bold">2/{totalPages}</span>
+                      <div className="border-t border-gray-300 mt-5 pt-4">
+                        <div className="flex justify-between text-[8px] text-gray-400">
+                          {data.printDateTime.trim() && (
+                            <p>Print Date: {data.printDateTime}</p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
-
-              {/* PAGE 3 */}
-              <div className="shadow-2xl rounded-sm relative">
-                <div className="text-center text-xs text-slate-400 mb-2">
-                  A4 Discharge Summary
-                </div>
-                <div
-                  ref={page3Ref}
-                  className="bg-white text-black p-[12mm] font-sans shadow-lg mx-auto w-full min-h-[297mm] flex flex-col justify-between relative overflow-hidden"
-                  style={reportPageStyle("10.5px", "1.35")}
-                >
-                  {renderWatermark(3)}
-                  {renderDocumentStamps("discharge", 3)}
-
-                  <div className="relative z-10">
-                    {/* Header */}
-                    <div className="flex justify-between items-start border-b border-gray-300 pb-2 mb-3">
-                      <div className="relative min-w-0 flex-1">
-                        {renderHeaderBrand(true)}
-                      </div>
-                      <div className="text-[8px] text-right text-gray-600 leading-tight">
-                        <p className="font-bold text-gray-700">
-                          {data.hospitalSub}
-                        </p>
-                        <p>{data.hospitalAddress}</p>
-                      </div>
-                    </div>
-
-                    <div
-                      className="flex justify-between items-center px-2.5 py-0.5 rounded-sm mb-4 font-bold text-[11px]"
-                      style={reportSectionStyle()}
-                    >
-                      <span>DISCHARGE SUMMARY (FOLLOW-UP)</span>
-                    </div>
-
-                    {/* Patient info repetition block */}
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 border border-gray-350 p-2.5 rounded-sm mb-4 text-[9.5px]">
-                      <div>
-                        <span className="text-gray-500">Patient Name:</span>{" "}
-                        <span className="font-bold">{data.patientName}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">UHID:</span>{" "}
-                        <span className="font-bold">{data.uhid}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">Age/Sex:</span>{" "}
-                        <span className="font-bold">{data.ageSex}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">Admit Dt:</span>{" "}
-                        <span className="font-bold">{data.admitDate}</span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div>
-                        <p className="font-bold underline text-gray-800">
-                          Primary Consultant Details:
-                        </p>
-                        <p className="mt-1 font-semibold leading-relaxed">
-                          {data.primaryConsultant}
-                        </p>
-                      </div>
-
-                      <div className="border border-gray-300 p-3 rounded-sm space-y-3 bg-gray-50 text-[10px]">
-                        <p className="font-bold text-gray-800">
-                          Acknowledgment & Received by (Patient / NOK):
-                        </p>
-                        <div className="grid grid-cols-3 gap-2">
-                          <div>
-                            <span className="text-gray-500">Received By:</span>
-                            <div className="border-b border-gray-400 h-6 mt-1 font-bold">
-                              {data.receivedBy || "___________________"}
-                            </div>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">Date:</span>
-                            <div className="border-b border-gray-400 h-6 mt-1 font-bold">
-                              {data.receivedDate || "____/____/________"}
-                            </div>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">Time:</span>
-                            <div className="border-b border-gray-400 h-6 mt-1 font-bold">
-                              {data.receivedTime || "____:____"}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4 pt-2">
-                        <div className="bg-emerald-55 border border-emerald-200 p-3 rounded-sm">
-                          <p className="font-bold text-emerald-800">
-                            Discharge Follow Up Visit Date:
-                          </p>
-                          <p className="text-lg font-black text-emerald-950 mt-1">
-                            {data.dischargeFollowUpVisitDate}
-                          </p>
-                        </div>
-                        <div className="border border-gray-300 p-3 rounded-sm text-[9.5px] space-y-1">
-                          <p>
-                            <span className="text-gray-500">Prepared By:</span>{" "}
-                            <span className="font-bold text-gray-800">
-                              {data.preparedBy}
-                            </span>
-                          </p>
-                          <p>
-                            <span className="text-gray-500">Verified By:</span>{" "}
-                            <span className="font-bold text-gray-800">
-                              {data.verifiedBy}
-                            </span>
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Note Footer */}
-                  <div className="border-t border-gray-300 pt-2 text-[7.5px] text-gray-400 text-center leading-tight relative z-10">
-                    <p className="font-semibold text-gray-500">
-                      {data.dischargeFooterNote}
-                    </p>
-                    <div className="flex justify-between mt-1">
-                      <span>{data.dischargeFooterBrand}</span>
-                      <span className="font-bold">3/{totalPages}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* CUSTOM PAGES */}
-              {data.customPages.map((cp, idx) => {
-                const pageNum = idx + 4;
-                return (
-                  <div key={idx} className="shadow-2xl rounded-sm relative">
+              ) : (
+                /* Discharge Summary Preview (3+ Pages) */
+                <div className="space-y-8 w-full max-w-[210mm]">
+                  {/* PAGE 1 */}
+                  <div className="shadow-2xl rounded-sm relative">
                     <div className="text-center text-xs text-slate-400 mb-2">
                       A4 Discharge Summary
                     </div>
                     <div
-                      ref={(el) => {
-                        customPagesRefs.current[idx] = el;
-                      }}
+                      ref={page1Ref}
                       className="bg-white text-black p-[12mm] font-sans shadow-lg mx-auto w-full min-h-[297mm] flex flex-col justify-between relative overflow-hidden"
                       style={reportPageStyle("10.5px", "1.35")}
                     >
-                      {renderWatermark(pageNum)}
-                      {renderDocumentStamps("discharge", pageNum)}
+                      {renderEmergencyStripe()}
+                      {renderTopUhid()}
+                      {renderWatermark(1)}
+                      {renderDocumentStamps("discharge", 1)}
 
                       <div className="relative z-10">
                         {/* Header */}
@@ -5043,8 +5785,504 @@ export default function Home() {
                           className="flex justify-between items-start border-b pb-2 mb-3"
                           style={{ borderColor: data.reportTheme.border }}
                         >
+                          <div
+                            className="relative flex items-center min-w-0 flex-1"
+                            style={{ color: data.reportTheme.text }}
+                          >
+                            {renderHeaderBrand("discharge", true)}
+                          </div>
+                          <div
+                            className="text-[8px] text-right leading-tight"
+                            style={{ color: data.reportTheme.muted }}
+                          >
+                            <p
+                              className="font-bold"
+                              style={{ color: data.reportTheme.heading }}
+                            >
+                              {data.hospitalSub}
+                            </p>
+                            <p>{data.hospitalAddress}</p>
+                            {(data.hospitalEmail || data.hospitalPhone) && (
+                              <p>
+                                {data.hospitalEmail &&
+                                  `E: ${data.hospitalEmail}`}
+                                {data.hospitalEmail &&
+                                  data.hospitalPhone &&
+                                  " | "}
+                                {data.hospitalPhone &&
+                                  `T: ${data.hospitalPhone}`}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div
+                          className="flex justify-between items-center px-2.5 py-0.5 rounded-sm mb-3 font-bold text-[11px]"
+                          style={reportSectionStyle()}
+                        >
+                          <span>DISCHARGE SUMMARY</span>
+                        </div>
+
+                        {/* Patient detail block */}
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 border border-gray-350 p-2.5 rounded-sm mb-4 text-[9.5px]">
+                          <div className="grid grid-cols-3 gap-x-2 items-start">
+                            <span className="font-semibold text-gray-700">
+                              Patient Name
+                            </span>
+                            <span className="col-span-2 font-bold break-words">
+                              : {data.patientName}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-x-2 items-start">
+                            <span className="font-semibold text-gray-700">
+                              IP No
+                            </span>
+                            <span className="col-span-2 font-bold">
+                              : {data.ipNo}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-x-2 items-start">
+                            <span className="font-semibold text-gray-700">
+                              Age/Sex
+                            </span>
+                            <span className="col-span-2 font-bold">
+                              : {calculateAge(data.dob, data.admitDate)} Year(s)
+                              / {data.ageSex.split("/")[1]?.trim() || "Male"}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-x-2 items-start">
+                            <span className="font-semibold text-gray-700">
+                              Admit Date
+                            </span>
+                            <span className="col-span-2 font-bold">
+                              : {data.admitDate}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-x-2 items-start">
+                            <span className="font-semibold text-gray-700">
+                              Discharge Date
+                            </span>
+                            <span className="col-span-2 font-bold">
+                              : {data.dischargeDateTime}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-x-2 items-start">
+                            <span className="font-semibold text-gray-700">
+                              UHID
+                            </span>
+                            <span className="col-span-2 font-bold">
+                              : {data.uhid}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-x-2 items-start">
+                            <span className="font-semibold text-gray-700">
+                              Doctor Name
+                            </span>
+                            <span className="col-span-2 font-bold break-words">
+                              : {data.refDoctor}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-x-2 items-start">
+                            <span className="font-semibold text-gray-700">
+                              Facility
+                            </span>
+                            <span className="col-span-2 font-bold">
+                              : {data.facility}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-x-2 items-start">
+                            <span className="font-semibold text-gray-700">
+                              Aadhar Card
+                            </span>
+                            <span className="col-span-2 font-bold">
+                              : {data.aadharCard}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-x-2 items-start">
+                            <span className="font-semibold text-gray-700">
+                              DOB
+                            </span>
+                            <span className="col-span-2 font-bold">
+                              : {data.dob}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-x-2 items-start">
+                            <span className="font-semibold text-gray-700">
+                              Address
+                            </span>
+                            <span className="col-span-2 font-bold break-words leading-tight">
+                              : {data.address}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-x-2 items-start">
+                            <span className="font-semibold text-gray-700">
+                              Mobile
+                            </span>
+                            <span className="col-span-2 font-bold">
+                              : {data.mobile}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-x-2 items-start">
+                            <span className="font-semibold text-gray-700">
+                              Company Name
+                            </span>
+                            <span className="col-span-2 font-bold break-words">
+                              : {data.companyName}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-x-2 items-start">
+                            <span className="font-semibold text-gray-700">
+                              Ordering Bed/Ward
+                            </span>
+                            <span className="col-span-2 font-bold break-words">
+                              : {data.orderingBedWard}
+                            </span>
+                          </div>
+
+                          <div></div>
+                          <div className="grid grid-cols-3 gap-x-2 items-start">
+                            <span className="font-semibold text-gray-700">
+                              Current Bed/Ward
+                            </span>
+                            <span className="col-span-2 font-bold break-words">
+                              : {data.currentBedWard}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Primary & Cross Consultants */}
+                        <div className="space-y-2 mb-3">
+                          <div>
+                            <p className="font-bold underline text-gray-800">
+                              Primary Consultant
+                            </p>
+                            <p className="text-justify font-medium leading-relaxed mt-0.5">
+                              {data.primaryConsultant}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="font-bold underline text-gray-800">
+                              Cross Consultants
+                            </p>
+                            <p className="mt-0.5">{data.crossConsultants}</p>
+                          </div>
+                        </div>
+
+                        {/* Diagnosis & clinical details */}
+                        <div className="space-y-2.5">
+                          <div>
+                            <p className="font-bold underline text-gray-800">
+                              Final / Provisional Diagnosis
+                            </p>
+                            <p className="font-bold text-gray-900 mt-0.5">
+                              {data.finalDiagnosis}
+                            </p>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <p className="font-bold underline text-gray-800">
+                                Result
+                              </p>
+                              <p className="mt-0.5">{data.dischargeResult}</p>
+                            </div>
+                            <div>
+                              <p className="font-bold underline text-gray-800">
+                                Nature of Treatment
+                              </p>
+                              <p className="mt-0.5">{data.natureOfTreatment}</p>
+                            </div>
+                          </div>
+                          <div>
+                            <p className="font-bold underline text-gray-800">
+                              Reason for admission
+                            </p>
+                            <p className="mt-0.5">{data.reasonForAdmission}</p>
+                          </div>
+                          <div>
+                            <p className="font-bold underline text-gray-800">
+                              HOPI
+                            </p>
+                            <p className="mt-0.5">{data.hopi}</p>
+                          </div>
+                          <div>
+                            <p className="font-bold underline text-gray-800">
+                              Past History
+                            </p>
+                            <p className="mt-0.5">{data.pastHistory}</p>
+                          </div>
+                          <div>
+                            <p className="font-bold underline text-gray-800">
+                              Family History
+                            </p>
+                            <p className="mt-0.5">{data.familyHistory}</p>
+                          </div>
+                          <div>
+                            <p className="font-bold underline text-gray-800">
+                              Allergy
+                            </p>
+                            <p className="mt-0.5">{data.allergy}</p>
+                          </div>
+                        </div>
+
+                        {/* Vitals Table */}
+                        <div className="mt-3">
+                          <p className="font-bold underline text-gray-800 mb-1.5">
+                            O/E (At admission)
+                          </p>
+                          <div className="grid grid-cols-2 border border-gray-300 rounded-sm text-[9.5px]">
+                            <div className="p-1.5 border-r border-b border-gray-300 grid grid-cols-2">
+                              <span className="text-gray-500">Pulse:</span>
+                              <span className="font-bold">{data.pulse}</span>
+                            </div>
+                            <div className="p-1.5 border-b border-gray-300 grid grid-cols-2">
+                              <span className="text-gray-500">Pallor:</span>
+                              <span className="font-bold">{data.pallor}</span>
+                            </div>
+                            <div className="p-1.5 border-r border-b border-gray-300 grid grid-cols-2">
+                              <span className="text-gray-500">
+                                Blood Pressure:
+                              </span>
+                              <span className="font-bold">{data.bp}</span>
+                            </div>
+                            <div className="p-1.5 border-b border-gray-300 grid grid-cols-2">
+                              <span className="text-gray-500">Cyanosis:</span>
+                              <span className="font-bold">{data.cyanosis}</span>
+                            </div>
+                            <div className="p-1.5 border-r border-gray-300 grid grid-cols-2">
+                              <span className="text-gray-500">Temp:</span>
+                              <span className="font-bold">{data.temp}</span>
+                            </div>
+                            <div className="p-1.5 grid grid-cols-2">
+                              <span className="text-gray-500">Edema:</span>
+                              <span className="font-bold">{data.edema}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Note Footer */}
+                      <div className="border-t border-gray-300 pt-2 text-[7.5px] text-gray-400 text-center leading-tight relative z-10">
+                        <p className="font-semibold text-gray-500">
+                          {data.dischargeFooterNote}
+                        </p>
+                        <div className="flex justify-between mt-1">
+                          <span>{data.dischargeFooterBrand}</span>
+                          <span className="font-bold">1/{totalPages}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* PAGE 2 */}
+                  <div className="shadow-2xl rounded-sm relative">
+                    <div className="text-center text-xs text-slate-400 mb-2">
+                      A4 Discharge Summary
+                    </div>
+                    <div
+                      ref={page2Ref}
+                      className="bg-white text-black p-[12mm] font-sans shadow-lg mx-auto w-full min-h-[297mm] flex flex-col justify-between relative overflow-hidden"
+                      style={reportPageStyle("10.5px", "1.35")}
+                    >
+                      {renderTopUhid()}
+                      {renderWatermark(2)}
+                      {renderDocumentStamps("discharge", 2)}
+
+                      <div className="relative z-10">
+                        <div className="grid grid-cols-3 border border-gray-300 rounded p-2 mb-3 text-[9px]">
+                          <div>
+                            <span className="text-gray-500">Patient Name:</span>{" "}
+                            <span className="font-bold">
+                              {data.patientName}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">UHID:</span>{" "}
+                            <span className="font-bold">{data.uhid}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">IP No:</span>{" "}
+                            <span className="font-bold">{data.ipNo}</span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div>
+                            <p className="font-bold underline text-gray-800">
+                              Treatment Given:
+                            </p>
+                            <div className="grid grid-cols-3 gap-y-1.5 mt-1 font-semibold text-gray-700">
+                              {data.treatmentGiven.map((t, i) => (
+                                <p key={i}>
+                                  {i + 1}. {t}
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div>
+                            <p className="font-bold underline text-gray-800">
+                              Investigations:
+                            </p>
+                            <p className="mt-0.5 text-gray-700">
+                              {data.investigations}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="font-bold underline text-gray-800">
+                              COURSE DURING STAY (SUMMARY)
+                            </p>
+                            <p className="mt-0.5 text-justify leading-relaxed">
+                              {data.courseDuringStay}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="font-bold underline text-gray-800">
+                              Procedure done:
+                            </p>
+                            <p className="mt-0.5 text-gray-700">
+                              {data.procedureDone}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="font-bold underline text-gray-800">
+                              When and how to obtain urgent care:
+                            </p>
+                            <p className="mt-0.5 text-gray-700 leading-normal">
+                              {data.urgentCareInfo}
+                            </p>
+                          </div>
+
+                          {/* Discharge Medications list */}
+                          <div>
+                            <p className="font-bold underline text-gray-800 mb-1">
+                              DISCHARGE MEDICATION
+                            </p>
+                            <div className="border border-gray-300 rounded-sm overflow-hidden">
+                              <table className="w-full text-left text-[9.5px]">
+                                <thead>
+                                  <tr className="bg-gray-100 border-b border-gray-300 font-bold text-gray-700">
+                                    <th className="p-1.5 w-10">S.No.</th>
+                                    <th className="p-1.5">Medicine Name</th>
+                                    <th className="p-1.5">Instructions</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {data.medications.map((m, i) => (
+                                    <tr
+                                      key={i}
+                                      className="border-b border-gray-200"
+                                    >
+                                      <td className="p-1.5 font-bold">
+                                        {i + 1}
+                                      </td>
+                                      <td className="p-1.5 font-bold text-gray-800">
+                                        {m.name}
+                                      </td>
+                                      <td className="p-1.5 text-gray-700">
+                                        {m.instruction}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <p className="font-bold underline text-gray-800">
+                                Special needs:
+                              </p>
+                              <p className="mt-0.5">{data.specialNeeds}</p>
+                            </div>
+                            <div>
+                              <p className="font-bold underline text-gray-800">
+                                Follow up:
+                              </p>
+                              <p className="mt-0.5">{data.dischargeFollowUp}</p>
+                            </div>
+                          </div>
+
+                          <div>
+                            <p className="font-bold underline text-gray-800">
+                              Condition on Discharge:
+                            </p>
+                            <p className="mt-0.5 font-bold text-emerald-700">
+                              {data.conditionOnDischarge}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Signatures & Footer */}
+                      <div className="relative z-10">
+                        <div className="flex justify-between items-end mb-4 pt-4">
+                          <div>
+                            <div className="w-32 border-b border-gray-300 mb-1"></div>
+                            <p className="text-[9px] font-bold text-gray-700">
+                              Doctor Signature
+                            </p>
+                          </div>
+                          <div className="text-center bg-gray-50 p-2 border border-gray-200 rounded text-[8px] max-w-[120px]">
+                            <p className="font-bold">
+                              {data.radiologyStampLabel}
+                            </p>
+                            <p className="text-gray-400">
+                              {data.radiologyStampSubtext}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <div className="w-32 border-b border-gray-300 mb-1"></div>
+                            <p className="text-[9px] font-bold text-gray-700">
+                              Consultant signature
+                            </p>
+                            <p className="text-[8px] text-gray-500">
+                              {data.verifiedBy}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="border-t border-gray-300 pt-2 text-[7.5px] text-gray-400 text-center leading-tight">
+                          <p className="font-semibold text-gray-500">
+                            {data.dischargeFooterNote}
+                          </p>
+                          <div className="flex justify-between mt-1">
+                            <span>{data.dischargeFooterBrand}</span>
+                            <span className="font-bold">2/{totalPages}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* PAGE 3 */}
+                  <div className="shadow-2xl rounded-sm relative">
+                    <div className="text-center text-xs text-slate-400 mb-2">
+                      A4 Discharge Summary
+                    </div>
+                    <div
+                      ref={page3Ref}
+                      className="bg-white text-black p-[12mm] font-sans shadow-lg mx-auto w-full min-h-[297mm] flex flex-col justify-between relative overflow-hidden"
+                      style={reportPageStyle("10.5px", "1.35")}
+                    >
+                      {renderTopUhid()}
+                      {renderWatermark(3)}
+                      {renderDocumentStamps("discharge", 3)}
+
+                      <div className="relative z-10">
+                        {/* Header */}
+                        <div className="flex justify-between items-start border-b border-gray-300 pb-2 mb-3">
                           <div className="relative min-w-0 flex-1">
-                            {renderHeaderBrand(true)}
+                            {renderHeaderBrand("discharge", true)}
                           </div>
                           <div className="text-[8px] text-right text-gray-600 leading-tight">
                             <p className="font-bold text-gray-700">
@@ -5058,13 +6296,97 @@ export default function Home() {
                           className="flex justify-between items-center px-2.5 py-0.5 rounded-sm mb-4 font-bold text-[11px]"
                           style={reportSectionStyle()}
                         >
-                          <span>
-                            DISCHARGE SUMMARY (ADDITIONAL DOCUMENTATION)
-                          </span>
+                          <span>DISCHARGE SUMMARY (FOLLOW-UP)</span>
                         </div>
 
-                        <div className="whitespace-pre-wrap text-justify text-gray-800 leading-relaxed font-medium">
-                          {cp}
+                        {/* Patient info repetition block */}
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 border border-gray-350 p-2.5 rounded-sm mb-4 text-[9.5px]">
+                          <div>
+                            <span className="text-gray-500">Patient Name:</span>{" "}
+                            <span className="font-bold">
+                              {data.patientName}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">UHID:</span>{" "}
+                            <span className="font-bold">{data.uhid}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">Age/Sex:</span>{" "}
+                            <span className="font-bold">{data.ageSex}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">Admit Dt:</span>{" "}
+                            <span className="font-bold">{data.admitDate}</span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          <div>
+                            <p className="font-bold underline text-gray-800">
+                              Primary Consultant Details:
+                            </p>
+                            <p className="mt-1 font-semibold leading-relaxed">
+                              {data.primaryConsultant}
+                            </p>
+                          </div>
+
+                          <div className="border border-gray-300 p-3 rounded-sm space-y-3 bg-gray-50 text-[10px]">
+                            <p className="font-bold text-gray-800">
+                              Acknowledgment & Received by (Patient / NOK):
+                            </p>
+                            <div className="grid grid-cols-3 gap-2">
+                              <div>
+                                <span className="text-gray-500">
+                                  Received By:
+                                </span>
+                                <div className="border-b border-gray-400 h-6 mt-1 font-bold">
+                                  {data.receivedBy || "___________________"}
+                                </div>
+                              </div>
+                              <div>
+                                <span className="text-gray-500">Date:</span>
+                                <div className="border-b border-gray-400 h-6 mt-1 font-bold">
+                                  {data.receivedDate || "____/____/________"}
+                                </div>
+                              </div>
+                              <div>
+                                <span className="text-gray-500">Time:</span>
+                                <div className="border-b border-gray-400 h-6 mt-1 font-bold">
+                                  {data.receivedTime || "____:____"}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4 pt-2">
+                            <div className="bg-emerald-55 border border-emerald-200 p-3 rounded-sm">
+                              <p className="font-bold text-emerald-800">
+                                Discharge Follow Up Visit Date:
+                              </p>
+                              <p className="text-lg font-black text-emerald-950 mt-1">
+                                {data.dischargeFollowUpVisitDate}
+                              </p>
+                            </div>
+                            <div className="border border-gray-300 p-3 rounded-sm text-[9.5px] space-y-1">
+                              <p>
+                                <span className="text-gray-500">
+                                  Prepared By:
+                                </span>{" "}
+                                <span className="font-bold text-gray-800">
+                                  {data.preparedBy}
+                                </span>
+                              </p>
+                              <p>
+                                <span className="text-gray-500">
+                                  Verified By:
+                                </span>{" "}
+                                <span className="font-bold text-gray-800">
+                                  {data.verifiedBy}
+                                </span>
+                              </p>
+                            </div>
+                          </div>
                         </div>
                       </div>
 
@@ -5075,18 +6397,81 @@ export default function Home() {
                         </p>
                         <div className="flex justify-between mt-1">
                           <span>{data.dischargeFooterBrand}</span>
-                          <span className="font-bold">
-                            {pageNum}/{totalPages}
-                          </span>
+                          <span className="font-bold">3/{totalPages}</span>
                         </div>
                       </div>
                     </div>
                   </div>
-                );
-              })}
+
+                  {/* CUSTOM PAGES */}
+                  {data.customPages.map((cp, idx) => {
+                    const pageNum = idx + 4;
+                    return (
+                      <div key={idx} className="shadow-2xl rounded-sm relative">
+                        <div className="text-center text-xs text-slate-400 mb-2">
+                          A4 Discharge Summary
+                        </div>
+                        <div
+                          ref={(el) => {
+                            customPagesRefs.current[idx] = el;
+                          }}
+                          className="bg-white text-black p-[12mm] font-sans shadow-lg mx-auto w-full min-h-[297mm] flex flex-col justify-between relative overflow-hidden"
+                          style={reportPageStyle("10.5px", "1.35")}
+                        >
+                          {renderTopUhid()}
+                          {renderWatermark(pageNum)}
+                          {renderDocumentStamps("discharge", pageNum)}
+
+                          <div className="relative z-10">
+                            {/* Header */}
+                            <div
+                              className="flex justify-between items-start border-b pb-2 mb-3"
+                              style={{ borderColor: data.reportTheme.border }}
+                            >
+                              <div className="relative min-w-0 flex-1">
+                                {renderHeaderBrand("discharge", true)}
+                              </div>
+                              <div className="text-[8px] text-right text-gray-600 leading-tight">
+                                <p className="font-bold text-gray-700">
+                                  {data.hospitalSub}
+                                </p>
+                                <p>{data.hospitalAddress}</p>
+                              </div>
+                            </div>
+
+                            <div
+                              className="flex justify-between items-center px-2.5 py-0.5 rounded-sm mb-4 font-bold text-[11px]"
+                              style={reportSectionStyle()}
+                            >
+                              <span>
+                                DISCHARGE SUMMARY (ADDITIONAL DOCUMENTATION)
+                              </span>
+                            </div>
+
+                            <div className="whitespace-pre-wrap text-justify text-gray-800 leading-relaxed font-medium">
+                              {cp}
+                            </div>
+                          </div>
+
+                          {/* Note Footer */}
+                          <div className="border-t border-gray-300 pt-2 text-[7.5px] text-gray-400 text-center leading-tight relative z-10">
+                            <p className="font-semibold text-gray-500">
+                              {data.dischargeFooterNote}
+                            </p>
+                            <div className="flex justify-between mt-1">
+                              <span>{data.dischargeFooterBrand}</span>
+                              <span className="font-bold">
+                                {pageNum}/{totalPages}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
-        </div>
           </div>
         )}
       </div>
