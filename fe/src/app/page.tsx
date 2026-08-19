@@ -15,10 +15,12 @@ import {
 } from "lucide-react";
 import { calculateAge } from "../lib/report-utils";
 import {
+  deleteDocumentImage,
   getPatient,
   listPatients,
   removePatient,
   savePatient,
+  uploadDocumentImage,
 } from "../lib/patient-api";
 import { PatientManagement } from "../components/PatientManagement";
 import { AppSidebar } from "../components/AppSidebar";
@@ -49,11 +51,34 @@ const dateForCertificate = (date: string) => {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : date;
 };
 
+const fileToDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Unable to read the selected image."));
+    reader.readAsDataURL(file);
+  });
+
+const isEmbeddedImage = (image?: string) =>
+  Boolean(image?.startsWith("data:image/"));
+
 type DocumentType = "diagnostic" | "discharge" | "fitness";
+
+const admissionExamFields = [
+  { key: "pulse", label: "Pulse" },
+  { key: "pallor", label: "Pallor" },
+  { key: "bp", label: "Blood Pressure" },
+  { key: "cyanosis", label: "Cyanosis" },
+  { key: "temp", label: "Temp" },
+  { key: "edema", label: "Edema" },
+  { key: "spo2", label: "SpO2" },
+  { key: "respiration", label: "Respiration" },
+] as const;
 
 const createDefaultLogoSettings = (): LogoSettings => ({
   logoType: "text",
   logoImage: "",
+  logoImagePublicId: "",
   logoImageWidth: 100,
   logoImageHeight: 100,
   logoImageX: 50,
@@ -138,6 +163,7 @@ const defaultReportData: ReportData = {
     "History of fungal injection since 1.5 years (Taken Tab Itraconazole medication for 2 months ); not resolved completely. (Taken steroid since 2-3 months back).",
   familyHistory: "No significant family history.",
   allergy: "NA",
+  admissionCondition: "Patient conscious, oriented, afebrile",
   pulse: "60 /min",
   bp: "130/90 mmHg",
   temp: "97.6 deg F",
@@ -194,6 +220,7 @@ const defaultReportData: ReportData = {
   // Logo & Watermark settings
   logoType: "text",
   logoImage: "",
+  logoImagePublicId: "",
   logoImageWidth: 100,
   logoImageHeight: 100,
   logoImageX: 50,
@@ -210,6 +237,7 @@ const defaultReportData: ReportData = {
   watermarkEnabled: true,
   watermarkImageEnabled: true,
   watermarkImage: defaultWatermarkSvg,
+  watermarkImagePublicId: "",
   watermarkOpacity: 0.15,
   watermarkPages: [1, 2, 3], // Checked for page 1, 2 and 3 by default
   watermarkX: 50,
@@ -305,6 +333,7 @@ const defaultReportData: ReportData = {
 const legacyLogoSettingsFrom = (reportData: ReportData): LogoSettings => ({
   logoType: reportData.logoType,
   logoImage: reportData.logoImage,
+  logoImagePublicId: reportData.logoImagePublicId,
   logoImageWidth: reportData.logoImageWidth,
   logoImageHeight: reportData.logoImageHeight,
   logoImageX: reportData.logoImageX,
@@ -343,6 +372,52 @@ const normalizedDocumentLogoSettings = (
   };
 };
 
+const clearImageFromReport = (
+  reportData: ReportData,
+  imageUrl: string,
+  publicId?: string,
+): ReportData => {
+  const matches = (url: string, storedPublicId?: string) =>
+    url === imageUrl || Boolean(publicId && storedPublicId === publicId);
+  const clearHeaderLogos = (logos: LogoSettings["headerLogos"]) =>
+    logos.map((logo) =>
+      matches(logo.image, logo.imagePublicId)
+        ? { ...logo, image: "", imagePublicId: "" }
+        : logo,
+    );
+  const clearLogoSettings = (settings: LogoSettings): LogoSettings => ({
+    ...settings,
+    ...(matches(settings.logoImage, settings.logoImagePublicId)
+      ? { logoImage: "", logoImagePublicId: "" }
+      : {}),
+    headerLogos: clearHeaderLogos(settings.headerLogos),
+  });
+
+  return {
+    ...reportData,
+    ...(matches(reportData.logoImage, reportData.logoImagePublicId)
+      ? { logoImage: "", logoImagePublicId: "" }
+      : {}),
+    headerLogos: clearHeaderLogos(reportData.headerLogos),
+    documentLogoSettings: {
+      diagnostic: clearLogoSettings(reportData.documentLogoSettings.diagnostic),
+      discharge: clearLogoSettings(reportData.documentLogoSettings.discharge),
+      fitness: clearLogoSettings(reportData.documentLogoSettings.fitness),
+    },
+    ...(matches(
+      reportData.watermarkImage,
+      reportData.watermarkImagePublicId,
+    )
+      ? { watermarkImage: "", watermarkImagePublicId: "" }
+      : {}),
+    dischargeSummaryStamps: reportData.dischargeSummaryStamps.map((stamp) =>
+      matches(stamp.image, stamp.imagePublicId)
+        ? { ...stamp, image: "", imagePublicId: "" }
+        : stamp,
+    ),
+  };
+};
+
 export default function Home() {
   const [workspace, setWorkspace] = useState<"editor" | "patients">("editor");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -353,6 +428,8 @@ export default function Home() {
   const [stampDesigner, setStampDesigner] = useState<StampDesigner>({
     name: "Approved Seal",
     mainText: "APPROVED",
+    centerContent: "text",
+    symbolScale: 1,
     topText: "ORCHID MEDICAL CENTRE",
     bottomText: "AUTHORISED SIGNATORY",
     color: "#9b1c1c",
@@ -368,6 +445,10 @@ export default function Home() {
     textOpacityVariation: 0.12,
     borderEnabled: true,
     borderWidth: 1,
+    pressureVariation: 0.38,
+    inkBleed: 0.45,
+    edgeWear: 0.35,
+    smudge: 0.18,
   });
   const [nameStampDesigner, setNameStampDesigner] = useState<NameStampDesigner>(
     {
@@ -388,6 +469,10 @@ export default function Home() {
       textOpacityVariation: 0.12,
       borderEnabled: true,
       borderWidth: 1,
+      pressureVariation: 0.32,
+      inkBleed: 0.35,
+      edgeWear: 0.28,
+      smudge: 0.14,
     },
   );
   const [activeTab, setActiveTab] = useState<
@@ -421,6 +506,20 @@ export default function Home() {
   const [pdfSaveMode, setPdfSaveMode] = useState<"combined" | "separate">(
     "combined",
   );
+  const [pendingLogoFiles, setPendingLogoFiles] = useState<
+    Partial<Record<DocumentType, File>>
+  >({});
+  const [pendingHeaderLogoFiles, setPendingHeaderLogoFiles] = useState<
+    Record<string, File>
+  >({});
+  const [pendingWatermarkFile, setPendingWatermarkFile] =
+    useState<File | null>(null);
+  const [pendingStampFiles, setPendingStampFiles] = useState<
+    Record<string, File>
+  >({});
+  const [uploadingImages, setUploadingImages] = useState<
+    Record<string, boolean>
+  >({});
 
   // References to the A4 sheets
   const diagSheetRef = useRef<HTMLDivElement>(null);
@@ -484,7 +583,7 @@ export default function Home() {
     try {
       const patient = await getPatient(patientId);
 
-      // Images are deliberately not persisted; defaults keep the editor usable.
+      // Merge saved patient data with defaults so newly added settings remain usable.
       const mergedData = {
         ...defaultReportData,
         ...patient.patientDetails,
@@ -494,6 +593,10 @@ export default function Home() {
         patient.patientDetails.documentLogoSettings,
       );
       setData(mergedData);
+      setPendingLogoFiles({});
+      setPendingHeaderLogoFiles({});
+      setPendingWatermarkFile(null);
+      setPendingStampFiles({});
       setEditingPatientId(patient._id);
       setWorkspace("editor");
       setActiveTab("patient");
@@ -524,15 +627,93 @@ export default function Home() {
     }
   };
 
+  const uploadEmbeddedImage = async (
+    image: string | undefined,
+    assetType: string,
+  ) => {
+    if (!isEmbeddedImage(image)) return image || "";
+    return (await uploadDocumentImage(image!, assetType)).url;
+  };
+
+  const persistEmbeddedImages = async (
+    reportData: ReportData,
+  ): Promise<ReportData> => {
+    const documentTypes: DocumentType[] = [
+      "diagnostic",
+      "discharge",
+      "fitness",
+    ];
+    const logoSettingEntries = await Promise.all(
+      documentTypes.map(async (documentType) => {
+        const settings = getDocumentLogoSettings(reportData, documentType);
+        return [
+          documentType,
+          {
+            ...settings,
+            logoImage: await uploadEmbeddedImage(
+              settings.logoImage,
+              `logo-${documentType}`,
+            ),
+            headerLogos: await Promise.all(
+              settings.headerLogos.map(async (logo) => ({
+                ...logo,
+                image: await uploadEmbeddedImage(
+                  logo.image,
+                  `header-logo-${documentType}`,
+                ),
+              })),
+            ),
+          },
+        ] as const;
+      }),
+    );
+
+    return {
+      ...reportData,
+      logoImage: await uploadEmbeddedImage(reportData.logoImage, "legacy-logo"),
+      headerLogos: await Promise.all(
+        reportData.headerLogos.map(async (logo) => ({
+          ...logo,
+          image: await uploadEmbeddedImage(logo.image, "legacy-header-logo"),
+        })),
+      ),
+      documentLogoSettings: Object.fromEntries(
+        logoSettingEntries,
+      ) as ReportData["documentLogoSettings"],
+      watermarkImage: await uploadEmbeddedImage(
+        reportData.watermarkImage,
+        "watermark",
+      ),
+      dischargeSummaryStamps: await Promise.all(
+        reportData.dischargeSummaryStamps.map(async (stamp) => ({
+          ...stamp,
+          image: await uploadEmbeddedImage(stamp.image, "stamp"),
+        })),
+      ),
+    };
+  };
+
   const savePatientDetails = async () => {
     if (!data.uhid.trim()) {
       alert("Enter a UHID before saving patient details.");
       return;
     }
 
+    const hasPendingImage =
+      Object.keys(pendingLogoFiles).length > 0 ||
+      Object.keys(pendingHeaderLogoFiles).length > 0 ||
+      Boolean(pendingWatermarkFile) ||
+      Object.keys(pendingStampFiles).length > 0;
+    if (hasPendingImage) {
+      alert("Upload or replace the selected images before saving details.");
+      return;
+    }
+
     setIsSavingPatient(true);
     try {
-      const savedPatient = await savePatient(data, editingPatientId);
+      const persistedData = await persistEmbeddedImages(data);
+      setData(persistedData);
+      const savedPatient = await savePatient(persistedData, editingPatientId);
       setEditingPatientId(savedPatient.id);
       alert(savedPatient.message);
     } catch (error) {
@@ -591,40 +772,110 @@ export default function Home() {
     handleInputChange("findingsList", updated);
   };
 
-  const handleImageUpload = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    field: "watermarkImage",
+  const uploadImageSource = async (
+    source: string,
+    assetType: string,
+    uploadKey: string,
   ) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (event.target?.result) {
-        handleInputChange(field, event.target.result as string);
-      }
-    };
-    reader.readAsDataURL(file);
+    setUploadingImages((previous) => ({ ...previous, [uploadKey]: true }));
+    try {
+      return await uploadDocumentImage(source, assetType);
+    } finally {
+      setUploadingImages((previous) => ({ ...previous, [uploadKey]: false }));
+    }
   };
 
-  const handleLogoImageUpload = (
+  const deleteImageReference = async (
+    imageUrl: string,
+    publicId: string | undefined,
+    deleteKey: string,
+  ) => {
+    if (!confirm("Delete this image from Cloudinary and the saved patient record?")) {
+      return false;
+    }
+
+    setUploadingImages((previous) => ({ ...previous, [deleteKey]: true }));
+    try {
+      if (imageUrl) {
+        await deleteDocumentImage({
+          imageUrl,
+          publicId,
+          patientId: editingPatientId,
+        });
+        setData((previous) =>
+          clearImageFromReport(previous, imageUrl, publicId),
+        );
+      }
+      return true;
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Unable to delete image.");
+      return false;
+    } finally {
+      setUploadingImages((previous) => ({ ...previous, [deleteKey]: false }));
+    }
+  };
+
+  const handleLogoImageSelection = (
     e: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const targetDocumentType = docType;
+    setPendingLogoFiles((previous) => ({ ...previous, [docType]: file }));
+  };
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (event.target?.result) {
-        handleDocumentLogoSettingChange(
-          targetDocumentType,
-          "logoImage",
-          event.target.result as string,
-        );
-      }
-    };
-    reader.readAsDataURL(file);
+  const uploadLogoImage = async () => {
+    const targetDocumentType = docType;
+    const pendingFile = pendingLogoFiles[targetDocumentType];
+    const currentImage = getDocumentLogoSettings(
+      data,
+      targetDocumentType,
+    ).logoImage;
+    if (!pendingFile && !isEmbeddedImage(currentImage)) return;
+
+    try {
+      const source = pendingFile
+        ? await fileToDataUrl(pendingFile)
+        : currentImage;
+      const upload = await uploadImageSource(
+        source,
+        `logo-${targetDocumentType}`,
+        `logo:${targetDocumentType}`,
+      );
+      handleDocumentLogoSettingChange(
+        targetDocumentType,
+        "logoImage",
+        upload.url,
+      );
+      handleDocumentLogoSettingChange(
+        targetDocumentType,
+        "logoImagePublicId",
+        upload.publicId,
+      );
+      setPendingLogoFiles((previous) => {
+        const next = { ...previous };
+        delete next[targetDocumentType];
+        return next;
+      });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Unable to upload logo.");
+    }
+  };
+
+  const deleteLogoImage = async () => {
+    const targetDocumentType = docType;
+    const settings = getDocumentLogoSettings(data, targetDocumentType);
+    const deleted = await deleteImageReference(
+      settings.logoImage,
+      settings.logoImagePublicId,
+      `delete:logo:${targetDocumentType}`,
+    );
+    if (deleted) {
+      setPendingLogoFiles((previous) => {
+        const next = { ...previous };
+        delete next[targetDocumentType];
+        return next;
+      });
+    }
   };
 
   const handleHeaderLogoChange = (
@@ -661,6 +912,11 @@ export default function Home() {
       (logo) => logo.id !== id,
     );
     handleLogoSettingChange("headerLogos", updated);
+    setPendingHeaderLogoFiles((previous) => {
+      const next = { ...previous };
+      delete next[`${docType}:${id}`];
+      return next;
+    });
   };
 
   const handleHeaderLogoUpload = (
@@ -669,36 +925,134 @@ export default function Home() {
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const pendingKey = `${docType}:${logoId}`;
+    setPendingHeaderLogoFiles((previous) => ({
+      ...previous,
+      [pendingKey]: file,
+    }));
+  };
+
+  const uploadHeaderLogoImage = async (logoId: string) => {
     const targetDocumentType = docType;
+    const pendingKey = `${targetDocumentType}:${logoId}`;
+    const pendingFile = pendingHeaderLogoFiles[pendingKey];
+    const currentLogo = getDocumentLogoSettings(
+      data,
+      targetDocumentType,
+    ).headerLogos.find((logo) => logo.id === logoId);
+    if (!currentLogo || (!pendingFile && !isEmbeddedImage(currentLogo.image))) {
+      return;
+    }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (event.target?.result) {
-        setData((previous) => {
-          const documentSettings = getDocumentLogoSettings(
-            previous,
-            targetDocumentType,
-          );
-          const updated = documentSettings.headerLogos.map((logo) =>
-            logo.id === logoId
-              ? { ...logo, image: event.target?.result as string }
-              : logo,
-          );
-
-          return {
-            ...previous,
-            documentLogoSettings: {
-              ...previous.documentLogoSettings,
-              [targetDocumentType]: {
-                ...documentSettings,
-                headerLogos: updated,
-              },
+    try {
+      const source = pendingFile
+        ? await fileToDataUrl(pendingFile)
+        : currentLogo.image;
+      const upload = await uploadImageSource(
+        source,
+        `header-logo-${targetDocumentType}`,
+        `header:${pendingKey}`,
+      );
+      setData((previous) => {
+        const documentSettings = getDocumentLogoSettings(
+          previous,
+          targetDocumentType,
+        );
+        return {
+          ...previous,
+          documentLogoSettings: {
+            ...previous.documentLogoSettings,
+            [targetDocumentType]: {
+              ...documentSettings,
+              headerLogos: documentSettings.headerLogos.map((logo) =>
+                logo.id === logoId
+                  ? {
+                      ...logo,
+                      image: upload.url,
+                      imagePublicId: upload.publicId,
+                    }
+                  : logo,
+              ),
             },
-          };
-        });
-      }
-    };
-    reader.readAsDataURL(file);
+          },
+        };
+      });
+      setPendingHeaderLogoFiles((previous) => {
+        const next = { ...previous };
+        delete next[pendingKey];
+        return next;
+      });
+    } catch (error) {
+      alert(
+        error instanceof Error ? error.message : "Unable to upload header logo.",
+      );
+    }
+  };
+
+  const deleteHeaderLogoImage = async (logoId: string) => {
+    const targetDocumentType = docType;
+    const pendingKey = `${targetDocumentType}:${logoId}`;
+    const logo = getDocumentLogoSettings(
+      data,
+      targetDocumentType,
+    ).headerLogos.find((candidate) => candidate.id === logoId);
+    if (!logo) return;
+
+    const deleted = await deleteImageReference(
+      logo.image,
+      logo.imagePublicId,
+      `delete:header:${pendingKey}`,
+    );
+    if (deleted) {
+      setPendingHeaderLogoFiles((previous) => {
+        const next = { ...previous };
+        delete next[pendingKey];
+        return next;
+      });
+    }
+  };
+
+  const handleWatermarkImageSelection = (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    if (file) setPendingWatermarkFile(file);
+  };
+
+  const uploadWatermarkImage = async () => {
+    if (
+      !pendingWatermarkFile &&
+      !isEmbeddedImage(data.watermarkImage)
+    ) {
+      return;
+    }
+
+    try {
+      const source = pendingWatermarkFile
+        ? await fileToDataUrl(pendingWatermarkFile)
+        : data.watermarkImage;
+      const upload = await uploadImageSource(
+        source,
+        "watermark",
+        "watermark",
+      );
+      handleInputChange("watermarkImage", upload.url);
+      handleInputChange("watermarkImagePublicId", upload.publicId);
+      setPendingWatermarkFile(null);
+    } catch (error) {
+      alert(
+        error instanceof Error ? error.message : "Unable to upload watermark.",
+      );
+    }
+  };
+
+  const deleteWatermarkImage = async () => {
+    const deleted = await deleteImageReference(
+      data.watermarkImage,
+      data.watermarkImagePublicId,
+      "delete:watermark",
+    );
+    if (deleted) setPendingWatermarkFile(null);
   };
 
   const handleWatermarkPageToggle = (pageNumber: number) => {
@@ -769,6 +1123,10 @@ export default function Home() {
   const handleReset = () => {
     if (confirm("Reset all fields to default?")) {
       setData(defaultReportData);
+      setPendingLogoFiles({});
+      setPendingHeaderLogoFiles({});
+      setPendingWatermarkFile(null);
+      setPendingStampFiles({});
     }
   };
 
@@ -868,6 +1226,7 @@ export default function Home() {
         pastHistory: "",
         familyHistory: "",
         allergy: "",
+        admissionCondition: "",
         pulse: "",
         bp: "",
         temp: "",
@@ -918,6 +1277,7 @@ export default function Home() {
         ...data,
         logoType: "text",
         logoImage: "",
+        logoImagePublicId: "",
         logoImageWidth: defaultReportData.logoImageWidth,
         logoImageHeight: defaultReportData.logoImageHeight,
         logoImageX: defaultReportData.logoImageX,
@@ -934,6 +1294,7 @@ export default function Home() {
         watermarkEnabled: false,
         watermarkImageEnabled: false,
         watermarkImage: "",
+        watermarkImagePublicId: "",
         watermarkOpacity: 0.3,
         watermarkPages: [],
         watermarkX: 50,
@@ -955,6 +1316,10 @@ export default function Home() {
         reportTheme: defaultReportData.reportTheme,
         dischargeSummaryStamps: [],
       });
+      setPendingLogoFiles({});
+      setPendingHeaderLogoFiles({});
+      setPendingWatermarkFile(null);
+      setPendingStampFiles({});
     }
   };
 
@@ -1036,6 +1401,11 @@ export default function Home() {
       (stamp) => stamp.id !== id || stamp.isDefault,
     );
     handleInputChange("dischargeSummaryStamps", updated);
+    setPendingStampFiles((previous) => {
+      const next = { ...previous };
+      delete next[id];
+      return next;
+    });
   };
 
   const handleStampImageUpload = (
@@ -1044,14 +1414,57 @@ export default function Home() {
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setPendingStampFiles((previous) => ({ ...previous, [stampId]: file }));
+  };
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (event.target?.result) {
-        handleStampChange(stampId, "image", event.target.result as string);
-      }
-    };
-    reader.readAsDataURL(file);
+  const uploadStampImage = async (stampId: string) => {
+    const stamp = data.dischargeSummaryStamps.find(
+      (candidate) => candidate.id === stampId,
+    );
+    const pendingFile = pendingStampFiles[stampId];
+    if (!stamp || (!pendingFile && !isEmbeddedImage(stamp.image))) {
+      return;
+    }
+
+    try {
+      const source = pendingFile
+        ? await fileToDataUrl(pendingFile)
+        : stamp.image;
+      const upload = await uploadImageSource(
+        source,
+        "stamp",
+        `stamp:${stampId}`,
+      );
+      handleStampChange(stampId, "image", upload.url);
+      handleStampChange(stampId, "imagePublicId", upload.publicId);
+      setPendingStampFiles((previous) => {
+        const next = { ...previous };
+        delete next[stampId];
+        return next;
+      });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Unable to upload stamp.");
+    }
+  };
+
+  const deleteStampImage = async (stampId: string) => {
+    const stamp = data.dischargeSummaryStamps.find(
+      (candidate) => candidate.id === stampId,
+    );
+    if (!stamp) return;
+
+    const deleted = await deleteImageReference(
+      stamp.image,
+      stamp.imagePublicId,
+      `delete:stamp:${stampId}`,
+    );
+    if (deleted) {
+      setPendingStampFiles((previous) => {
+        const next = { ...previous };
+        delete next[stampId];
+        return next;
+      });
+    }
   };
 
   const escapeStampText = (value: string) =>
@@ -1066,9 +1479,90 @@ export default function Home() {
       return entities[character];
     });
 
+  const clampStampValue = (value: number, minimum = 0, maximum = 1) =>
+    Math.max(minimum, Math.min(maximum, value));
+
+  const stampTextureSeed = (value: string, fallback = 17) =>
+    Array.from(value).reduce(
+      (seed, character, index) =>
+        (seed + character.charCodeAt(0) * (index + 3)) % 997,
+      fallback,
+    );
+
+  const seededInkValue = (seed: number, index: number) => {
+    const value = Math.sin(seed * 12.9898 + index * 78.233) * 43758.5453;
+    return value - Math.floor(value);
+  };
+
+  const createInkSpillMarks = (
+    amount: number,
+    seed: number,
+    smudgeAmount: number,
+  ) =>
+    Array.from(
+      { length: Math.round(clampStampValue(amount, 0, 24)) },
+      (_, index) => {
+        const x = 62 + seededInkValue(seed, index * 8) * 476;
+        const y = 94 + seededInkValue(seed, index * 8 + 1) * 412;
+        const radiusX = 1.2 + seededInkValue(seed, index * 8 + 2) * 5.5;
+        const radiusY = 0.7 + seededInkValue(seed, index * 8 + 3) * 2.8;
+        const angle = -38 + seededInkValue(seed, index * 8 + 4) * 76;
+        const opacity = 0.2 + seededInkValue(seed, index * 8 + 5) * 0.36;
+        const direction = index % 2 === 0 ? 1 : -1;
+        const drag = direction *
+          (4 + smudgeAmount * 25 + seededInkValue(seed, index * 8 + 6) * 8);
+        const curve = (seededInkValue(seed, index * 8 + 7) - 0.5) * 8;
+        return `<g opacity="${opacity.toFixed(2)}" transform="rotate(${angle.toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)})">
+          <ellipse cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="${radiusX.toFixed(1)}" ry="${radiusY.toFixed(1)}" fill="currentColor"/>
+          <path d="M ${x.toFixed(1)} ${y.toFixed(1)} C ${(x + drag * 0.35).toFixed(1)} ${(y + curve).toFixed(1)}, ${(x + drag * 0.72).toFixed(1)} ${(y - curve * 0.4).toFixed(1)}, ${(x + drag).toFixed(1)} ${(y + curve * 0.25).toFixed(1)}" fill="none" stroke="currentColor" stroke-width="${Math.max(0.6, radiusY * 0.7).toFixed(1)}" stroke-linecap="round"/>
+          <ellipse cx="${(x + drag * 0.48).toFixed(1)}" cy="${(y + curve * 0.2).toFixed(1)}" rx="${Math.max(0.6, radiusX * 0.28).toFixed(1)}" ry="${Math.max(0.35, radiusY * 0.32).toFixed(1)}" fill="currentColor"/>
+        </g>`;
+      },
+    ).join("");
+
+  const createHospitalMedicalSymbol = (scale: number) => `<g
+    transform="translate(300 300) scale(${(scale * 0.215).toFixed(4)}) translate(-560 -560)"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <defs>
+      <mask id="hospitalSymbolAOverlayGap" maskUnits="userSpaceOnUse" x="300" y="250" width="590" height="590" style="mask-type:luminance">
+        <rect x="300" y="250" width="590" height="590" fill="white"/>
+        <path d="M386 804 C428 647 568 565 836 444 C811 571 708 630 570 676 C489 703 429 748 386 804 Z" fill="black" stroke="black" stroke-width="24"/>
+        <path d="M377 815 C431 783 493 762 559 760 C604 759 652 756 681 771 C697 780 699 793 685 804 C665 817 624 824 583 831 C616 846 657 850 696 838 C735 826 767 793 797 766 C818 747 844 737 862 747 C882 759 875 780 855 800 C805 851 741 888 662 904 C562 924 471 889 395 839 C380 829 373 821 377 815 Z" fill="black" stroke="black" stroke-width="18"/>
+      </mask>
+      <mask id="hospitalSymbolHandDetail" maskUnits="userSpaceOnUse" x="350" y="725" width="540" height="220" style="mask-type:luminance">
+        <rect x="350" y="725" width="540" height="220" fill="white"/>
+        <path d="M572 830 C616 842 658 837 690 816" fill="none" stroke="black" stroke-width="13" stroke-linecap="round"/>
+      </mask>
+    </defs>
+    <!-- Broad rounded medical cross behind the central mark. -->
+    <path d="M451 350 V205 Q451 155 501 155 H665 Q715 155 715 205 V350 H860 Q910 350 910 400 V565 Q910 615 860 615 H715 V720 H451 V615 H306 Q256 615 256 565 V400 Q256 350 306 350 Z" fill="none" stroke="currentColor" stroke-width="56" opacity="0.78"/>
+
+    <!-- Heavy angular A, including its transparent counter. -->
+    <path d="M557 292 H651 L824 787 H704 L658 645 H519 L466 787 H344 Z M589 432 L548 559 H625 Z" fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" mask="url(#hospitalSymbolAOverlayGap)"/>
+
+    <!-- Long rising care leaf crossing the A as in the supplied emblem. -->
+    <path d="M386 804 C428 647 568 565 836 444 C811 571 708 630 570 676 C489 703 429 748 386 804 Z" fill="currentColor" opacity="0.88"/>
+
+    <!-- Cupped supporting hand beneath the A. -->
+    <path d="M377 815 C431 783 493 762 559 760 C604 759 652 756 681 771 C697 780 699 793 685 804 C665 817 624 824 583 831 C616 846 657 850 696 838 C735 826 767 793 797 766 C818 747 844 737 862 747 C882 759 875 780 855 800 C805 851 741 888 662 904 C562 924 471 889 395 839 C380 829 373 821 377 815 Z" fill="currentColor" mask="url(#hospitalSymbolHandDetail)"/>
+
+    <!-- Twin earpieces and the lower stethoscope loop. -->
+    <path d="M158 389 C111 407 102 448 119 510 C138 578 174 631 220 634 C260 637 286 594 285 523 C285 449 265 400 223 384" fill="none" stroke="currentColor" stroke-width="25"/>
+    <ellipse cx="151" cy="377" rx="28" ry="24" transform="rotate(-34 151 377)" fill="currentColor"/>
+    <ellipse cx="231" cy="372" rx="29" ry="24" transform="rotate(24 231 372)" fill="currentColor"/>
+    <path d="M220 634 C222 797 373 961 604 970 C783 977 922 888 933 752" fill="none" stroke="currentColor" stroke-width="24"/>
+    <path d="M933 752 C934 734 939 716 948 698" fill="none" stroke="currentColor" stroke-width="19"/>
+    <circle cx="951" cy="681" r="52" fill="none" stroke="currentColor" stroke-width="24"/>
+    <circle cx="951" cy="681" r="24" fill="currentColor"/>
+  </g>`;
+
   const createStampSvg = (design: StampDesigner = stampDesigner) => {
     const {
       mainText,
+      centerContent = "text",
+      symbolScale = 1,
       topText,
       bottomText,
       color,
@@ -1084,8 +1578,22 @@ export default function Home() {
       textOpacityVariation = 0,
       borderEnabled = true,
       borderWidth = 1,
+      pressureVariation = 0.38,
+      inkBleed = 0.45,
+      edgeWear = 0.35,
+      smudge = 0.18,
     } = design;
     const isRound = shape === "round";
+    const usesMedicalSymbol = centerContent === "medicalSymbol";
+    const medicalSymbolScale = clampStampValue(symbolScale, 0.65, 1.35);
+    const pressure = clampStampValue(pressureVariation);
+    const wear = clampStampValue(edgeWear);
+    const bleed = clampStampValue(inkBleed, 0, 2);
+    const smudgeStrength = clampStampValue(smudge);
+    const unevenText = clampStampValue(textOpacityVariation);
+    const textureSeed = stampTextureSeed(
+      `${mainText}|${centerContent}|${topText}|${bottomText}|${shape}`,
+    );
     const frame = !borderEnabled
       ? ""
       : isRound
@@ -1096,39 +1604,91 @@ export default function Home() {
     const fadedOpacity = Math.max(0, 1 - fadeStrength).toFixed(2);
     const fadeGradient =
       fadeSide === "top"
-        ? `<linearGradient id="fadeGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="white" stop-opacity="${fadedOpacity}"/><stop offset="42%" stop-color="white"/></linearGradient>`
+        ? `<linearGradient id="hospitalFade" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="white" stop-opacity="${fadedOpacity}"/><stop offset="42%" stop-color="white"/></linearGradient>`
         : fadeSide === "bottom"
-          ? `<linearGradient id="fadeGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="58%" stop-color="white"/><stop offset="100%" stop-color="white" stop-opacity="${fadedOpacity}"/></linearGradient>`
+          ? `<linearGradient id="hospitalFade" x1="0" y1="0" x2="0" y2="1"><stop offset="58%" stop-color="white"/><stop offset="100%" stop-color="white" stop-opacity="${fadedOpacity}"/></linearGradient>`
           : fadeSide === "left"
-            ? `<linearGradient id="fadeGradient" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="white" stop-opacity="${fadedOpacity}"/><stop offset="42%" stop-color="white"/></linearGradient>`
+            ? `<linearGradient id="hospitalFade" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="white" stop-opacity="${fadedOpacity}"/><stop offset="42%" stop-color="white"/></linearGradient>`
             : fadeSide === "right"
-              ? `<linearGradient id="fadeGradient" x1="0" y1="0" x2="1" y2="0"><stop offset="58%" stop-color="white"/><stop offset="100%" stop-color="white" stop-opacity="${fadedOpacity}"/></linearGradient>`
+              ? `<linearGradient id="hospitalFade" x1="0" y1="0" x2="1" y2="0"><stop offset="58%" stop-color="white"/><stop offset="100%" stop-color="white" stop-opacity="${fadedOpacity}"/></linearGradient>`
               : "";
-    const fadeMask =
-      fadeSide === "none"
-        ? ""
-        : '<mask id="edgeFade"><rect width="600" height="600" fill="url(#fadeGradient)"/></mask>';
+    const maskFill = fadeSide === "none" ? "white" : "url(#hospitalFade)";
+    const pressureLow = (1 - pressure * 0.62).toFixed(2);
+    const pressureMid = (1 - pressure * 0.18).toFixed(2);
+    const wearLow = (1 - wear * 0.92).toFixed(2);
+    const wearMid = (1 - wear * 0.2).toFixed(2);
+    const textWear = clampStampValue(unevenText * 0.75 + wear * 0.45);
+    const textLow = (1 - textWear * 0.96).toFixed(2);
+    const textMid = (1 - textWear * 0.24).toFixed(2);
+    const rotation = sizeMismatch * 0.72;
+    const scaleX = 1 + sizeMismatch / 280;
+    const scaleY = 1 - sizeMismatch / 520;
+    const spillMarks = createInkSpillMarks(
+      inkSpill,
+      textureSeed + 71,
+      smudgeStrength,
+    );
+    const centerArtwork = usesMedicalSymbol
+      ? createHospitalMedicalSymbol(medicalSymbolScale)
+      : `<text x="300" y="${textY}" fill="currentColor" opacity="${1 - unevenText * 0.08}" text-anchor="middle" font-family="Georgia, serif" font-size="${titleSize}" font-weight="900" letter-spacing="2">${escapeStampText(mainText)}</text>`;
+    const separators = usesMedicalSymbol
+      ? ""
+      : `<path d="M ${isRound ? "170 345 L 430 345" : "95 360 L 505 360"}" stroke="currentColor" stroke-width="5"/><path d="M ${isRound ? "185 365 L 415 365" : "115 385 L 485 385"}" stroke="currentColor" stroke-width="2" stroke-dasharray="4 5"/>`;
+    const textArtwork = isRound
+      ? `<text fill="currentColor" opacity="${1 - unevenText * 0.12}" font-family="Georgia, serif" font-size="22" font-weight="700" letter-spacing="2"><textPath href="#hospitalTopArc" startOffset="50%" text-anchor="middle">${escapeStampText(topText)}</textPath></text><text fill="currentColor" opacity="${1 - unevenText * 0.22}" font-family="Georgia, serif" font-size="18" font-weight="700" letter-spacing="1.5"><textPath href="#hospitalBottomArc" startOffset="50%" text-anchor="middle">${escapeStampText(bottomText)}</textPath></text>${centerArtwork}`
+      : `<text x="300" y="195" fill="currentColor" opacity="${1 - unevenText * 0.12}" text-anchor="middle" font-family="Georgia, serif" font-size="22" font-weight="700" letter-spacing="2">${escapeStampText(topText)}</text><text x="300" y="438" fill="currentColor" opacity="${1 - unevenText * 0.22}" text-anchor="middle" font-family="Georgia, serif" font-size="18" font-weight="700" letter-spacing="1.5">${escapeStampText(bottomText)}</text>${centerArtwork}`;
 
     return `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
       <defs>
-        <filter id="rough" x="-15%" y="-15%" width="130%" height="130%">
-          <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" seed="8" result="noise"/>
+        <filter id="hospitalRough" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.025 0.13" numOctaves="4" seed="${textureSeed}" result="noise"/>
           <feMorphology in="SourceGraphic" operator="dilate" radius="${inkSpread}" result="spread"/>
           <feGaussianBlur in="spread" stdDeviation="${edgeSoftness}" result="softened"/>
           <feDisplacementMap in="softened" in2="noise" scale="${distress}" xChannelSelector="R" yChannelSelector="G"/>
         </filter>
+        <filter id="hospitalTextRough" x="-20%" y="-25%" width="140%" height="150%" color-interpolation-filters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.018 0.18" numOctaves="4" seed="${textureSeed + 19}" result="textNoise"/>
+          <feMorphology in="SourceGraphic" operator="dilate" radius="${Math.max(0, inkSpread * 0.62).toFixed(2)}" result="textSpread"/>
+          <feGaussianBlur in="textSpread" stdDeviation="${Math.max(0, edgeSoftness * 0.48).toFixed(2)}" result="textSoftened"/>
+          <feDisplacementMap in="textSoftened" in2="textNoise" scale="${(distress * 0.58).toFixed(2)}" xChannelSelector="R" yChannelSelector="G"/>
+        </filter>
+        <filter id="hospitalBleed" x="-25%" y="-25%" width="150%" height="150%">
+          <feMorphology in="SourceGraphic" operator="dilate" radius="${(bleed * 1.5).toFixed(2)}" result="bled"/>
+          <feGaussianBlur in="bled" stdDeviation="${(bleed * 0.65).toFixed(2)}"/>
+        </filter>
+        <filter id="hospitalSmudge" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur stdDeviation="${(0.2 + smudgeStrength * 1.8).toFixed(2)} ${Math.max(0.12, 0.2 + smudgeStrength * 0.55).toFixed(2)}"/>
+        </filter>
+        <filter id="hospitalInkTexture" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.006 0.028" numOctaves="3" seed="${textureSeed + 29}" result="pressureNoise"/>
+          <feComponentTransfer in="pressureNoise" result="pressureTexture"><feFuncR type="table" tableValues="${pressureLow} ${pressureMid} 1"/><feFuncG type="table" tableValues="${pressureLow} ${pressureMid} 1"/><feFuncB type="table" tableValues="${pressureLow} ${pressureMid} 1"/></feComponentTransfer>
+          <feTurbulence type="fractalNoise" baseFrequency="0.055 0.24" numOctaves="3" seed="${textureSeed + 43}" result="wearNoise"/>
+          <feComponentTransfer in="wearNoise" result="wearTexture"><feFuncR type="table" tableValues="${wearLow} ${wearMid} 1"/><feFuncG type="table" tableValues="${wearLow} ${wearMid} 1"/><feFuncB type="table" tableValues="${wearLow} ${wearMid} 1"/></feComponentTransfer>
+          <feBlend in="pressureTexture" in2="wearTexture" mode="multiply" result="combinedTexture"/><feBlend in="SourceGraphic" in2="combinedTexture" mode="multiply"/>
+        </filter>
+        <filter id="hospitalTextTexture" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.025 0.3" numOctaves="4" seed="${textureSeed + 61}" result="textFadeNoise"/>
+          <feComponentTransfer in="textFadeNoise" result="textTexture"><feFuncR type="table" tableValues="${textLow} ${textMid} 1"/><feFuncG type="table" tableValues="${textLow} ${textMid} 1"/><feFuncB type="table" tableValues="${textLow} ${textMid} 1"/></feComponentTransfer><feBlend in="SourceGraphic" in2="textTexture" mode="multiply"/>
+        </filter>
         ${fadeGradient}
-        ${fadeMask}
-        ${isRound ? '<path id="topArc" d="M 105,300 A 195,195 0 0,1 495,300" fill="none"/><path id="bottomArc" d="M 105,300 A 195,195 0 0,0 495,300" fill="none"/>' : ""}
+        <mask id="hospitalInkMask" maskUnits="userSpaceOnUse" x="0" y="0" width="600" height="600" style="mask-type:luminance"><rect width="600" height="600" fill="${maskFill}" filter="url(#hospitalInkTexture)"/></mask>
+        <mask id="hospitalTextMask" maskUnits="userSpaceOnUse" x="0" y="0" width="600" height="600" style="mask-type:luminance"><rect width="600" height="600" fill="${maskFill}" filter="url(#hospitalTextTexture)"/></mask>
+        ${isRound ? '<path id="hospitalTopArc" d="M 105,300 A 195,195 0 0,1 495,300" fill="none"/><path id="hospitalBottomArc" d="M 105,300 A 195,195 0 0,0 495,300" fill="none"/>' : ""}
+        <g id="hospitalFrameArtwork">${frame}${separators}${usesMedicalSymbol ? "" : '<circle cx="300" cy="278" r="5" fill="currentColor"/><circle cx="300" cy="385" r="5" fill="currentColor"/>'}</g>
+        <g id="hospitalTextArtwork">${textArtwork}</g>
       </defs>
-      <g color="${color}" opacity="${inkOpacity}"${fadeSide === "none" ? "" : ' mask="url(#edgeFade)"'}>
-        <g filter="url(#rough)" transform="rotate(${sizeMismatch} 300 300) scale(${1 + sizeMismatch / 250}) translate(${sizeMismatch * -2} ${sizeMismatch})">${frame}</g>
-        <path d="M ${isRound ? "170 345 L 430 345" : "95 360 L 505 360"}" stroke="currentColor" stroke-width="5"/>
-        <path d="M ${isRound ? "185 365 L 415 365" : "115 385 L 485 385"}" stroke="currentColor" stroke-width="2" stroke-dasharray="4 5"/>
-        ${isRound ? `<text fill="currentColor" opacity="${1 - textOpacityVariation / 2}" font-family="Georgia, serif" font-size="22" font-weight="700" letter-spacing="2"><textPath href="#topArc" startOffset="50%" text-anchor="middle">${escapeStampText(topText)}</textPath></text><text fill="currentColor" opacity="${1 - textOpacityVariation}" font-family="Georgia, serif" font-size="18" font-weight="700" letter-spacing="1.5"><textPath href="#bottomArc" startOffset="50%" text-anchor="middle">${escapeStampText(bottomText)}</textPath></text>` : `<text x="300" y="195" fill="currentColor" opacity="${1 - textOpacityVariation / 2}" text-anchor="middle" font-family="Georgia, serif" font-size="22" font-weight="700" letter-spacing="2">${escapeStampText(topText)}</text><text x="300" y="438" fill="currentColor" opacity="${1 - textOpacityVariation}" text-anchor="middle" font-family="Georgia, serif" font-size="18" font-weight="700" letter-spacing="1.5">${escapeStampText(bottomText)}</text>`}
-        <text x="300" y="${textY}" fill="currentColor" opacity="${1 - textOpacityVariation * 0.35}" text-anchor="middle" font-family="Georgia, serif" font-size="${titleSize}" font-weight="900" letter-spacing="2">${escapeStampText(mainText)}</text>
-        <circle cx="300" cy="278" r="5" fill="currentColor"/><circle cx="300" cy="385" r="5" fill="currentColor"/>
-        ${Array.from({ length: Math.round(inkSpill) }, (_, index) => `<circle cx="${80 + ((index * 137) % 440)}" cy="${110 + ((index * 83) % 390)}" r="${1.5 + (index % 3)}" fill="currentColor" opacity="${0.35 + (index % 3) * 0.12}"/>`).join("")}
+      <g color="${color}" opacity="${inkOpacity}">
+        <g mask="url(#hospitalInkMask)">
+          <use href="#hospitalFrameArtwork" filter="url(#hospitalBleed)" opacity="${(0.05 + bleed * 0.08).toFixed(2)}"/>
+          <use href="#hospitalFrameArtwork" transform="translate(${(smudgeStrength * 10).toFixed(2)} ${(smudgeStrength * 2.5).toFixed(2)})" filter="url(#hospitalSmudge)" opacity="${(smudgeStrength * 0.2).toFixed(2)}"/>
+          <use href="#hospitalFrameArtwork" filter="url(#hospitalRough)" transform="rotate(${rotation.toFixed(2)} 300 300) translate(${(sizeMismatch * -1.6).toFixed(2)} ${(sizeMismatch * 0.8).toFixed(2)}) scale(${scaleX.toFixed(4)} ${scaleY.toFixed(4)})"/>
+        </g>
+        <g mask="url(#hospitalTextMask)">
+          <use href="#hospitalTextArtwork" filter="url(#hospitalBleed)" opacity="${(0.04 + bleed * 0.06).toFixed(2)}"/>
+          <use href="#hospitalTextArtwork" transform="translate(${(smudgeStrength * 8).toFixed(2)} ${(smudgeStrength * 1.5).toFixed(2)})" filter="url(#hospitalSmudge)" opacity="${(smudgeStrength * 0.16).toFixed(2)}"/>
+          <use href="#hospitalTextArtwork" filter="url(#hospitalTextRough)"/>
+        </g>
+        ${spillMarks}
       </g>
     </svg>`;
   };
@@ -1166,7 +1726,12 @@ export default function Home() {
     const updated = data.dischargeSummaryStamps.map((stamp) => {
       if (stamp.id !== stampId || !stamp.designer) return stamp;
       const designer = { ...stamp.designer, [key]: value };
-      return { ...stamp, designer, image: stampSvgDataUrl(designer) };
+      return {
+        ...stamp,
+        designer,
+        image: stampSvgDataUrl(designer),
+        imagePublicId: "",
+      };
     });
     handleInputChange("dischargeSummaryStamps", updated);
   };
@@ -1192,16 +1757,20 @@ export default function Home() {
       textOpacityVariation = 0,
       borderEnabled = true,
       borderWidth = 1,
+      pressureVariation = 0.32,
+      inkBleed = 0.35,
+      edgeWear = 0.28,
+      smudge = 0.14,
     } = design;
     const isRound = shape === "round";
-    const unevenText = Math.max(0, Math.min(1, textOpacityVariation));
-    const fadeNoiseCoefficient = (unevenText / 3).toFixed(4);
-    const textureSeed = Array.from(
-      `${doctorName}|${department}|${degree}|${hospitalName}`,
-    ).reduce(
-      (seed, character, index) =>
-        (seed + character.charCodeAt(0) * (index + 1)) % 89,
-      11,
+    const unevenText = clampStampValue(textOpacityVariation);
+    const pressure = clampStampValue(pressureVariation);
+    const wear = clampStampValue(edgeWear);
+    const bleed = clampStampValue(inkBleed, 0, 2);
+    const smudgeStrength = clampStampValue(smudge);
+    const textureSeed = stampTextureSeed(
+      `${doctorName}|${department}|${degree}|${hospitalName}|${shape}`,
+      31,
     );
     const fadedOpacity = Math.max(0, 1 - fadeStrength).toFixed(2);
     const fadeGradient =
@@ -1222,42 +1791,64 @@ export default function Home() {
     const textY = isRound
       ? { hospital: 190, name: 270, department: 330, degree: 385 }
       : { hospital: 205, name: 275, department: 335, degree: 400 };
+    const maskFill = fadeSide === "none" ? "white" : "url(#nameFade)";
+    const pressureLow = (1 - pressure * 0.6).toFixed(2);
+    const pressureMid = (1 - pressure * 0.17).toFixed(2);
+    const wearLow = (1 - wear * 0.92).toFixed(2);
+    const wearMid = (1 - wear * 0.2).toFixed(2);
+    const textWear = clampStampValue(unevenText * 0.78 + wear * 0.44);
+    const textLow = (1 - textWear * 0.96).toFixed(2);
+    const textMid = (1 - textWear * 0.23).toFixed(2);
+    const spillMarks = createInkSpillMarks(
+      inkSpill,
+      textureSeed + 83,
+      smudgeStrength,
+    );
+    const rotation = sizeMismatch * 0.62;
+    const scaleX = 1 + sizeMismatch / 310;
+    const scaleY = 1 - sizeMismatch / 560;
     return `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
       <defs>
-        <filter id="nameRough" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+        <filter id="nameFrameRough" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
           <feTurbulence type="fractalNoise" baseFrequency="0.035 0.11" numOctaves="3" seed="${textureSeed}" result="roughNoise"/>
           <feMorphology in="SourceGraphic" operator="dilate" radius="${inkSpread}" result="spread"/>
           <feGaussianBlur in="spread" stdDeviation="${edgeSoftness}" result="softened"/>
           <feDisplacementMap in="softened" in2="roughNoise" scale="${distress}" xChannelSelector="R" yChannelSelector="G"/>
         </filter>
-        <filter id="nameTextFadeTexture" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
-          <feTurbulence type="fractalNoise" baseFrequency="0.018 0.14" numOctaves="4" seed="${textureSeed + 31}" result="fadeNoise"/>
-          <feColorMatrix in="fadeNoise" type="matrix" values="
-            0 0 0 0 1
-            0 0 0 0 1
-            0 0 0 0 1
-            -${fadeNoiseCoefficient} -${fadeNoiseCoefficient} -${fadeNoiseCoefficient} 0 1
-          "/>
+        <filter id="nameTextRough" x="-20%" y="-25%" width="140%" height="150%" color-interpolation-filters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.022 0.2" numOctaves="4" seed="${textureSeed + 17}" result="textNoise"/>
+          <feMorphology in="SourceGraphic" operator="dilate" radius="${Math.max(0, inkSpread * 0.58).toFixed(2)}" result="textSpread"/>
+          <feGaussianBlur in="textSpread" stdDeviation="${Math.max(0, edgeSoftness * 0.45).toFixed(2)}" result="textSoftened"/>
+          <feDisplacementMap in="textSoftened" in2="textNoise" scale="${(distress * 0.54).toFixed(2)}" xChannelSelector="R" yChannelSelector="G"/>
         </filter>
-        <mask id="nameTextFadeMask" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="0" y="0" width="600" height="600" style="mask-type:alpha">
-          <rect x="0" y="0" width="600" height="600" fill="white" filter="url(#nameTextFadeTexture)"/>
-        </mask>
+        <filter id="nameBleed" x="-25%" y="-25%" width="150%" height="150%"><feMorphology in="SourceGraphic" operator="dilate" radius="${(bleed * 1.45).toFixed(2)}" result="bled"/><feGaussianBlur in="bled" stdDeviation="${(bleed * 0.62).toFixed(2)}"/></filter>
+        <filter id="nameSmudge" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="${(0.2 + smudgeStrength * 1.75).toFixed(2)} ${Math.max(0.12, 0.2 + smudgeStrength * 0.52).toFixed(2)}"/></filter>
+        <filter id="nameInkTexture" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.006 0.03" numOctaves="3" seed="${textureSeed + 31}" result="pressureNoise"/>
+          <feComponentTransfer in="pressureNoise" result="pressureTexture"><feFuncR type="table" tableValues="${pressureLow} ${pressureMid} 1"/><feFuncG type="table" tableValues="${pressureLow} ${pressureMid} 1"/><feFuncB type="table" tableValues="${pressureLow} ${pressureMid} 1"/></feComponentTransfer>
+          <feTurbulence type="fractalNoise" baseFrequency="0.06 0.25" numOctaves="3" seed="${textureSeed + 47}" result="wearNoise"/>
+          <feComponentTransfer in="wearNoise" result="wearTexture"><feFuncR type="table" tableValues="${wearLow} ${wearMid} 1"/><feFuncG type="table" tableValues="${wearLow} ${wearMid} 1"/><feFuncB type="table" tableValues="${wearLow} ${wearMid} 1"/></feComponentTransfer>
+          <feBlend in="pressureTexture" in2="wearTexture" mode="multiply" result="combinedTexture"/><feBlend in="SourceGraphic" in2="combinedTexture" mode="multiply"/>
+        </filter>
+        <filter id="nameTextTexture" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency="0.028 0.32" numOctaves="4" seed="${textureSeed + 67}" result="textFadeNoise"/><feComponentTransfer in="textFadeNoise" result="textTexture"><feFuncR type="table" tableValues="${textLow} ${textMid} 1"/><feFuncG type="table" tableValues="${textLow} ${textMid} 1"/><feFuncB type="table" tableValues="${textLow} ${textMid} 1"/></feComponentTransfer><feBlend in="SourceGraphic" in2="textTexture" mode="multiply"/></filter>
         ${fadeGradient}
-        ${fadeSide === "none" ? "" : '<mask id="nameFadeMask"><rect width="600" height="600" fill="url(#nameFade)"/></mask>'}
+        <mask id="nameInkMask" maskUnits="userSpaceOnUse" x="0" y="0" width="600" height="600" style="mask-type:luminance"><rect width="600" height="600" fill="${maskFill}" filter="url(#nameInkTexture)"/></mask>
+        <mask id="nameTextMask" maskUnits="userSpaceOnUse" x="0" y="0" width="600" height="600" style="mask-type:luminance"><rect width="600" height="600" fill="${maskFill}" filter="url(#nameTextTexture)"/></mask>
+        <g id="nameFrameArtwork">${frame}<path d="M 120 225 L 480 225" stroke="currentColor" stroke-width="3"/><path d="M 120 355 L 480 355" stroke="currentColor" stroke-width="3"/></g>
+        <g id="nameTextArtwork"><text x="300" y="${textY.hospital}" fill="currentColor" opacity="${1 - unevenText * 0.1}" text-anchor="middle" font-family="Georgia, serif" font-size="20" font-weight="700" letter-spacing="1.5">${escapeStampText(hospitalName)}</text><text x="300" y="${textY.name}" fill="currentColor" opacity="${1 - unevenText * 0.05}" text-anchor="middle" font-family="Georgia, serif" font-size="${doctorName.length > 26 ? 30 : 36}" font-weight="900">${escapeStampText(doctorName)}</text><text x="300" y="${textY.department}" fill="currentColor" opacity="${1 - unevenText * 0.16}" text-anchor="middle" font-family="Georgia, serif" font-size="22" font-weight="700">${escapeStampText(department)}</text><text x="300" y="${textY.degree}" fill="currentColor" opacity="${1 - unevenText * 0.13}" text-anchor="middle" font-family="Georgia, serif" font-size="18" font-weight="700">${escapeStampText(degree)}</text></g>
       </defs>
-      <g color="${color}" opacity="${inkOpacity}"${fadeSide === "none" ? "" : ' mask="url(#nameFadeMask)"'}>
-        <g filter="url(#nameRough)" transform="rotate(${sizeMismatch} 300 300) scale(${1 + sizeMismatch / 250}) translate(${sizeMismatch * -2} ${sizeMismatch})">${frame}</g>
-        <g filter="url(#nameRough)">
-          <path d="M 120 225 L 480 225" stroke="currentColor" stroke-width="3"/>
-          <path d="M 120 355 L 480 355" stroke="currentColor" stroke-width="3"/>
+      <g color="${color}" opacity="${inkOpacity}">
+        <g mask="url(#nameInkMask)">
+          <use href="#nameFrameArtwork" filter="url(#nameBleed)" opacity="${(0.05 + bleed * 0.08).toFixed(2)}"/>
+          <use href="#nameFrameArtwork" transform="translate(${(smudgeStrength * 10).toFixed(2)} ${(smudgeStrength * 2.4).toFixed(2)})" filter="url(#nameSmudge)" opacity="${(smudgeStrength * 0.2).toFixed(2)}"/>
+          <use href="#nameFrameArtwork" filter="url(#nameFrameRough)" transform="rotate(${rotation.toFixed(2)} 300 300) translate(${(sizeMismatch * -1.45).toFixed(2)} ${(sizeMismatch * 0.7).toFixed(2)}) scale(${scaleX.toFixed(4)} ${scaleY.toFixed(4)})"/>
         </g>
-        <g filter="url(#nameRough)" mask="url(#nameTextFadeMask)">
-          <text x="300" y="${textY.hospital}" fill="currentColor" opacity="${1 - unevenText * 0.12}" text-anchor="middle" font-family="Georgia, serif" font-size="20" font-weight="700" letter-spacing="1.5">${escapeStampText(hospitalName)}</text>
-          <text x="300" y="${textY.name}" fill="currentColor" opacity="${1 - unevenText * 0.06}" text-anchor="middle" font-family="Georgia, serif" font-size="${doctorName.length > 26 ? 30 : 36}" font-weight="900">${escapeStampText(doctorName)}</text>
-          <text x="300" y="${textY.department}" fill="currentColor" opacity="${1 - unevenText * 0.18}" text-anchor="middle" font-family="Georgia, serif" font-size="22" font-weight="700">${escapeStampText(department)}</text>
-          <text x="300" y="${textY.degree}" fill="currentColor" opacity="${1 - unevenText * 0.14}" text-anchor="middle" font-family="Georgia, serif" font-size="18" font-weight="700">${escapeStampText(degree)}</text>
+        <g mask="url(#nameTextMask)">
+          <use href="#nameTextArtwork" filter="url(#nameBleed)" opacity="${(0.04 + bleed * 0.06).toFixed(2)}"/>
+          <use href="#nameTextArtwork" transform="translate(${(smudgeStrength * 8).toFixed(2)} ${(smudgeStrength * 1.4).toFixed(2)})" filter="url(#nameSmudge)" opacity="${(smudgeStrength * 0.16).toFixed(2)}"/>
+          <use href="#nameTextArtwork" filter="url(#nameTextRough)"/>
         </g>
-        ${Array.from({ length: Math.round(inkSpill) }, (_, index) => `<circle cx="${80 + ((index * 137) % 440)}" cy="${110 + ((index * 83) % 390)}" r="${1.5 + (index % 3)}" fill="currentColor" opacity="${0.35 + (index % 3) * 0.12}"/>`).join("")}
+        ${spillMarks}
       </g>
     </svg>`;
   };
@@ -1300,6 +1891,7 @@ export default function Home() {
         label: nameDesigner.doctorName || "Doctor Name Stamp",
         nameDesigner,
         image: nameStampSvgDataUrl(nameDesigner),
+        imagePublicId: "",
       };
     });
     handleInputChange("dischargeSummaryStamps", updated);
@@ -1915,9 +2507,46 @@ export default function Home() {
             <input
               type="file"
               accept="image/*"
-              onChange={handleLogoImageUpload}
+              onChange={handleLogoImageSelection}
               className="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700"
             />
+            {pendingLogoFiles[docType] && (
+              <p className="text-[10px] text-amber-300">
+                Selected: {pendingLogoFiles[docType]?.name}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => void uploadLogoImage()}
+              disabled={
+                uploadingImages[`logo:${docType}`] ||
+                (!pendingLogoFiles[docType] &&
+                  !isEmbeddedImage(activeLogoSettings.logoImage))
+              }
+              className="w-full rounded bg-sky-500 px-3 py-1.5 text-xs font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {uploadingImages[`logo:${docType}`]
+                ? "Uploading..."
+                : pendingLogoFiles[docType] ||
+                    isEmbeddedImage(activeLogoSettings.logoImage)
+                  ? activeLogoSettings.logoImage
+                    ? "Upload / Replace Logo"
+                    : "Upload Logo"
+                  : "Logo Uploaded to Cloudinary"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void deleteLogoImage()}
+              disabled={
+                uploadingImages[`delete:logo:${docType}`] ||
+                (!pendingLogoFiles[docType] && !activeLogoSettings.logoImage)
+              }
+              className="w-full rounded border border-red-500/60 bg-red-500/10 px-3 py-1.5 text-xs font-bold text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {uploadingImages[`delete:logo:${docType}`]
+                ? "Deleting..."
+                : "Delete Logo Image"}
+            </button>
             {activeLogoSettings.logoImage && (
               <div className="bg-white p-2 rounded flex justify-center max-h-16 overflow-hidden mt-1">
                 <img
@@ -2021,6 +2650,43 @@ export default function Home() {
                 onChange={(e) => handleHeaderLogoUpload(e, logo.id)}
                 className="w-full text-[10px] text-slate-400 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[10px] file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700"
               />
+              {pendingHeaderLogoFiles[`${docType}:${logo.id}`] && (
+                <p className="text-[10px] text-amber-300">
+                  Selected:{" "}
+                  {pendingHeaderLogoFiles[`${docType}:${logo.id}`].name}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => void uploadHeaderLogoImage(logo.id)}
+                disabled={
+                  uploadingImages[`header:${docType}:${logo.id}`] ||
+                  (!pendingHeaderLogoFiles[`${docType}:${logo.id}`] &&
+                    !isEmbeddedImage(logo.image))
+                }
+                className="w-full rounded bg-sky-500 px-2.5 py-1 text-[10px] font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {uploadingImages[`header:${docType}:${logo.id}`]
+                  ? "Uploading..."
+                  : pendingHeaderLogoFiles[`${docType}:${logo.id}`] ||
+                      isEmbeddedImage(logo.image)
+                    ? "Upload / Replace Header Logo"
+                    : "Header Logo Uploaded to Cloudinary"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void deleteHeaderLogoImage(logo.id)}
+                disabled={
+                  uploadingImages[`delete:header:${docType}:${logo.id}`] ||
+                  (!pendingHeaderLogoFiles[`${docType}:${logo.id}`] &&
+                    !logo.image)
+                }
+                className="w-full rounded border border-red-500/60 bg-red-500/10 px-2.5 py-1 text-[10px] font-bold text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {uploadingImages[`delete:header:${docType}:${logo.id}`]
+                  ? "Deleting..."
+                  : "Delete Header Logo Image"}
+              </button>
 
               {logo.image && (
                 <div className="bg-white rounded p-2 flex justify-center max-h-12 overflow-hidden">
@@ -2227,9 +2893,44 @@ export default function Home() {
               <input
                 type="file"
                 accept="image/*"
-                onChange={(e) => handleImageUpload(e, "watermarkImage")}
+                onChange={handleWatermarkImageSelection}
                 className="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700"
               />
+              {pendingWatermarkFile && (
+                <p className="text-[10px] text-amber-300">
+                  Selected: {pendingWatermarkFile.name}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => void uploadWatermarkImage()}
+                disabled={
+                  uploadingImages.watermark ||
+                  (!pendingWatermarkFile &&
+                    !isEmbeddedImage(data.watermarkImage))
+                }
+                className="w-full rounded bg-sky-500 px-3 py-1.5 text-xs font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {uploadingImages.watermark
+                  ? "Uploading..."
+                  : pendingWatermarkFile ||
+                      isEmbeddedImage(data.watermarkImage)
+                    ? "Upload / Replace Watermark"
+                    : "Watermark Uploaded to Cloudinary"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void deleteWatermarkImage()}
+                disabled={
+                  uploadingImages["delete:watermark"] ||
+                  (!pendingWatermarkFile && !data.watermarkImage)
+                }
+                className="w-full rounded border border-red-500/60 bg-red-500/10 px-3 py-1.5 text-xs font-bold text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {uploadingImages["delete:watermark"]
+                  ? "Deleting..."
+                  : "Delete Watermark Image"}
+              </button>
             </div>
 
             <div className="border-t border-slate-800 pt-4 space-y-3">
@@ -2590,11 +3291,11 @@ export default function Home() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <h5 className="text-xs font-bold text-emerald-300">
-                Stamp Designer
+                Hospital Stamp Designer
               </h5>
               <p className="text-[10px] text-slate-500">
-                Create a distressed ink-style seal, export it, or add it
-                directly to the document.
+                Create a pressure-sensitive, worn rubber-stamp impression with
+                editable ink texture, bleed, fading, and smudging.
               </p>
             </div>
             <div className="w-20 h-20 rounded bg-white/95 p-1 shrink-0">
@@ -2629,14 +3330,63 @@ export default function Home() {
               <option value="rectangle">Rectangle seal</option>
             </select>
           </div>
-          <input
-            value={stampDesigner.mainText}
-            onChange={(e) =>
-              setStampDesigner({ ...stampDesigner, mainText: e.target.value })
-            }
-            placeholder="Main stamp text"
-            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100 font-bold"
-          />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                Center content
+              </label>
+              <select
+                value={stampDesigner.centerContent ?? "text"}
+                onChange={(e) =>
+                  setStampDesigner({
+                    ...stampDesigner,
+                    centerContent: e.target
+                      .value as StampDesigner["centerContent"],
+                  })
+                }
+                className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-100"
+              >
+                <option value="text">Editable text</option>
+                <option value="medicalSymbol">Medical care SVG</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                Main text
+              </label>
+              <input
+                value={stampDesigner.mainText}
+                onChange={(e) =>
+                  setStampDesigner({
+                    ...stampDesigner,
+                    mainText: e.target.value,
+                  })
+                }
+                placeholder="Main stamp text"
+                className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs font-bold text-slate-100"
+              />
+            </div>
+          </div>
+          {(stampDesigner.centerContent ?? "text") === "medicalSymbol" && (
+            <div className="text-[10px] text-slate-400">
+              Medical SVG size (
+              {Math.round((stampDesigner.symbolScale ?? 1) * 100)}%)
+              <input
+                type="range"
+                min="0.65"
+                max="1.35"
+                step="0.05"
+                value={stampDesigner.symbolScale ?? 1}
+                onChange={(e) =>
+                  setStampDesigner({
+                    ...stampDesigner,
+                    symbolScale: parseFloat(e.target.value),
+                  })
+                }
+                className="w-full accent-emerald-500"
+              />
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <input
               value={stampDesigner.topText}
@@ -2798,7 +3548,7 @@ export default function Home() {
               <input
                 type="range"
                 min="0"
-                max="16"
+                max="24"
                 value={stampDesigner.inkSpill}
                 onChange={(e) =>
                   setStampDesigner({
@@ -2856,6 +3606,84 @@ export default function Home() {
               />
             </div>
           </div>
+          <div className="border-t border-emerald-900/50 pt-3 space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-400">
+              Realistic ink controls
+            </p>
+            <div className="grid grid-cols-2 gap-3 text-[10px] text-slate-400">
+              <div>
+                Pressure variation (
+                {Math.round((stampDesigner.pressureVariation ?? 0.38) * 100)}%)
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={stampDesigner.pressureVariation ?? 0.38}
+                  onChange={(e) =>
+                    setStampDesigner({
+                      ...stampDesigner,
+                      pressureVariation: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full accent-emerald-500"
+                />
+              </div>
+              <div>
+                Ink bleed ({(stampDesigner.inkBleed ?? 0.45).toFixed(2)})
+                <input
+                  type="range"
+                  min="0"
+                  max="2"
+                  step="0.05"
+                  value={stampDesigner.inkBleed ?? 0.45}
+                  onChange={(e) =>
+                    setStampDesigner({
+                      ...stampDesigner,
+                      inkBleed: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full accent-emerald-500"
+                />
+              </div>
+              <div>
+                Broken edge wear (
+                {Math.round((stampDesigner.edgeWear ?? 0.35) * 100)}%)
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={stampDesigner.edgeWear ?? 0.35}
+                  onChange={(e) =>
+                    setStampDesigner({
+                      ...stampDesigner,
+                      edgeWear: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full accent-emerald-500"
+                />
+              </div>
+              <div>
+                Ink drag / smudge (
+                {Math.round((stampDesigner.smudge ?? 0.18) * 100)}%)
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={stampDesigner.smudge ?? 0.18}
+                  onChange={(e) =>
+                    setStampDesigner({
+                      ...stampDesigner,
+                      smudge: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full accent-emerald-500"
+                />
+              </div>
+            </div>
+          </div>
           <div className="flex flex-wrap gap-2 pt-1">
             <button
               onClick={useDesignedStamp}
@@ -2885,8 +3713,8 @@ export default function Home() {
                 Doctor Name Stamp
               </h5>
               <p className="text-[10px] text-slate-500">
-                A realistic ink-style doctor stamp. It can be placed anywhere on
-                every diagnostic, discharge, or fitness page.
+                A pressure-sensitive doctor stamp with editable worn edges,
+                broken text ink, bleed, spill streaks, and drag marks.
               </p>
             </div>
             <div className="w-20 h-20 rounded bg-white/95 p-1 shrink-0">
@@ -3095,7 +3923,7 @@ export default function Home() {
               <input
                 type="range"
                 min="0"
-                max="16"
+                max="24"
                 value={nameStampDesigner.inkSpill}
                 onChange={(e) =>
                   setNameStampDesigner({
@@ -3153,6 +3981,87 @@ export default function Home() {
               />
             </div>
           </div>
+          <div className="border-t border-blue-900/50 pt-3 space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-blue-300">
+              Realistic ink controls
+            </p>
+            <div className="grid grid-cols-2 gap-3 text-[10px] text-slate-400">
+              <div>
+                Pressure variation (
+                {Math.round(
+                  (nameStampDesigner.pressureVariation ?? 0.32) * 100,
+                )}
+                %)
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={nameStampDesigner.pressureVariation ?? 0.32}
+                  onChange={(e) =>
+                    setNameStampDesigner({
+                      ...nameStampDesigner,
+                      pressureVariation: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full accent-blue-500"
+                />
+              </div>
+              <div>
+                Ink bleed ({(nameStampDesigner.inkBleed ?? 0.35).toFixed(2)})
+                <input
+                  type="range"
+                  min="0"
+                  max="2"
+                  step="0.05"
+                  value={nameStampDesigner.inkBleed ?? 0.35}
+                  onChange={(e) =>
+                    setNameStampDesigner({
+                      ...nameStampDesigner,
+                      inkBleed: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full accent-blue-500"
+                />
+              </div>
+              <div>
+                Broken edge wear (
+                {Math.round((nameStampDesigner.edgeWear ?? 0.28) * 100)}%)
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={nameStampDesigner.edgeWear ?? 0.28}
+                  onChange={(e) =>
+                    setNameStampDesigner({
+                      ...nameStampDesigner,
+                      edgeWear: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full accent-blue-500"
+                />
+              </div>
+              <div>
+                Ink drag / smudge (
+                {Math.round((nameStampDesigner.smudge ?? 0.14) * 100)}%)
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={nameStampDesigner.smudge ?? 0.14}
+                  onChange={(e) =>
+                    setNameStampDesigner({
+                      ...nameStampDesigner,
+                      smudge: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full accent-blue-500"
+                />
+              </div>
+            </div>
+          </div>
           <button
             onClick={useNameStamp}
             className="bg-blue-500 text-white hover:bg-blue-400 px-3 py-1.5 rounded text-xs font-bold"
@@ -3199,6 +4108,41 @@ export default function Home() {
                   onChange={(e) => handleStampImageUpload(e, stamp.id)}
                   className="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700"
                 />
+                {pendingStampFiles[stamp.id] && (
+                  <p className="mt-1 text-[10px] text-amber-300">
+                    Selected: {pendingStampFiles[stamp.id].name}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void uploadStampImage(stamp.id)}
+                  disabled={
+                    uploadingImages[`stamp:${stamp.id}`] ||
+                    (!pendingStampFiles[stamp.id] &&
+                      !isEmbeddedImage(stamp.image))
+                  }
+                  className="mt-2 w-full rounded bg-sky-500 px-3 py-1.5 text-xs font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {uploadingImages[`stamp:${stamp.id}`]
+                    ? "Uploading..."
+                    : pendingStampFiles[stamp.id] ||
+                        isEmbeddedImage(stamp.image)
+                      ? "Upload / Replace Stamp"
+                      : "Stamp Uploaded to Cloudinary"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void deleteStampImage(stamp.id)}
+                  disabled={
+                    uploadingImages[`delete:stamp:${stamp.id}`] ||
+                    (!pendingStampFiles[stamp.id] && !stamp.image)
+                  }
+                  className="mt-2 w-full rounded border border-red-500/60 bg-red-500/10 px-3 py-1.5 text-xs font-bold text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {uploadingImages[`delete:stamp:${stamp.id}`]
+                    ? "Deleting..."
+                    : "Delete Stamp Image"}
+                </button>
                 {stamp.image && (
                   <div className="bg-slate-800 p-2 rounded flex justify-center max-h-16 overflow-hidden mt-1">
                     <img
@@ -3220,6 +4164,45 @@ export default function Home() {
                       Changes regenerate this designed stamp. Uploaded image
                       stamps remain image-only.
                     </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-400">
+                    <div>
+                      Center content
+                      <select
+                        value={stamp.designer.centerContent ?? "text"}
+                        onChange={(e) =>
+                          handleDesignedStampChange(
+                            stamp.id,
+                            "centerContent",
+                            e.target
+                              .value as StampDesigner["centerContent"],
+                          )
+                        }
+                        className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-100"
+                      >
+                        <option value="text">Editable text</option>
+                        <option value="medicalSymbol">Medical care SVG</option>
+                      </select>
+                    </div>
+                    <div>
+                      Medical SVG size (
+                      {Math.round((stamp.designer.symbolScale ?? 1) * 100)}%)
+                      <input
+                        type="range"
+                        min="0.65"
+                        max="1.35"
+                        step="0.05"
+                        value={stamp.designer.symbolScale ?? 1}
+                        onChange={(e) =>
+                          handleDesignedStampChange(
+                            stamp.id,
+                            "symbolScale",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
+                    </div>
                   </div>
                   <input
                     value={stamp.designer.mainText}
@@ -3402,6 +4385,180 @@ export default function Home() {
                       />
                     </div>
                   </div>
+                  <div className="grid grid-cols-3 gap-2 text-[10px] text-slate-400">
+                    <div>
+                      Spill ({stamp.designer.inkSpill})
+                      <input
+                        type="range"
+                        min="0"
+                        max="24"
+                        value={stamp.designer.inkSpill}
+                        onChange={(e) =>
+                          handleDesignedStampChange(
+                            stamp.id,
+                            "inkSpill",
+                            parseInt(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
+                    </div>
+                    <div>
+                      Irregularity ({stamp.designer.sizeMismatch})
+                      <input
+                        type="range"
+                        min="0"
+                        max="8"
+                        value={stamp.designer.sizeMismatch}
+                        onChange={(e) =>
+                          handleDesignedStampChange(
+                            stamp.id,
+                            "sizeMismatch",
+                            parseInt(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
+                    </div>
+                    <div>
+                      Uneven text (
+                      {Math.round(
+                        stamp.designer.textOpacityVariation * 100,
+                      )}
+                      %)
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={stamp.designer.textOpacityVariation}
+                        onChange={(e) =>
+                          handleDesignedStampChange(
+                            stamp.id,
+                            "textOpacityVariation",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-400">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={stamp.designer.borderEnabled}
+                        onChange={(e) =>
+                          handleDesignedStampChange(
+                            stamp.id,
+                            "borderEnabled",
+                            e.target.checked,
+                          )
+                        }
+                        className="accent-emerald-500"
+                      />
+                      Show border
+                    </label>
+                    <div>
+                      Border width ({stamp.designer.borderWidth.toFixed(1)})
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="2.5"
+                        step="0.1"
+                        value={stamp.designer.borderWidth}
+                        onChange={(e) =>
+                          handleDesignedStampChange(
+                            stamp.id,
+                            "borderWidth",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 border-t border-emerald-900/40 pt-2 text-[10px] text-slate-400">
+                    <div>
+                      Pressure variation (
+                      {Math.round(
+                        (stamp.designer.pressureVariation ?? 0.38) * 100,
+                      )}
+                      %)
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={stamp.designer.pressureVariation ?? 0.38}
+                        onChange={(e) =>
+                          handleDesignedStampChange(
+                            stamp.id,
+                            "pressureVariation",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
+                    </div>
+                    <div>
+                      Ink bleed (
+                      {(stamp.designer.inkBleed ?? 0.45).toFixed(2)})
+                      <input
+                        type="range"
+                        min="0"
+                        max="2"
+                        step="0.05"
+                        value={stamp.designer.inkBleed ?? 0.45}
+                        onChange={(e) =>
+                          handleDesignedStampChange(
+                            stamp.id,
+                            "inkBleed",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
+                    </div>
+                    <div>
+                      Broken edge wear (
+                      {Math.round((stamp.designer.edgeWear ?? 0.35) * 100)}%)
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={stamp.designer.edgeWear ?? 0.35}
+                        onChange={(e) =>
+                          handleDesignedStampChange(
+                            stamp.id,
+                            "edgeWear",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
+                    </div>
+                    <div>
+                      Ink drag / smudge (
+                      {Math.round((stamp.designer.smudge ?? 0.18) * 100)}%)
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={stamp.designer.smudge ?? 0.18}
+                        onChange={(e) =>
+                          handleDesignedStampChange(
+                            stamp.id,
+                            "smudge",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-emerald-500"
+                      />
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -3506,7 +4663,7 @@ export default function Home() {
                       <input
                         type="range"
                         min="0"
-                        max="16"
+                        max="24"
                         value={stamp.nameDesigner.inkSpill}
                         onChange={(e) =>
                           handleNameStampChange(
@@ -3607,6 +4764,90 @@ export default function Home() {
                           handleNameStampChange(
                             stamp.id,
                             "edgeSoftness",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-blue-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 border-t border-blue-900/40 pt-2 text-[10px] text-slate-400">
+                    <div>
+                      Pressure variation (
+                      {Math.round(
+                        (stamp.nameDesigner.pressureVariation ?? 0.32) * 100,
+                      )}
+                      %)
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={stamp.nameDesigner.pressureVariation ?? 0.32}
+                        onChange={(e) =>
+                          handleNameStampChange(
+                            stamp.id,
+                            "pressureVariation",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-blue-500"
+                      />
+                    </div>
+                    <div>
+                      Ink bleed (
+                      {(stamp.nameDesigner.inkBleed ?? 0.35).toFixed(2)})
+                      <input
+                        type="range"
+                        min="0"
+                        max="2"
+                        step="0.05"
+                        value={stamp.nameDesigner.inkBleed ?? 0.35}
+                        onChange={(e) =>
+                          handleNameStampChange(
+                            stamp.id,
+                            "inkBleed",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-blue-500"
+                      />
+                    </div>
+                    <div>
+                      Broken edge wear (
+                      {Math.round(
+                        (stamp.nameDesigner.edgeWear ?? 0.28) * 100,
+                      )}
+                      %)
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={stamp.nameDesigner.edgeWear ?? 0.28}
+                        onChange={(e) =>
+                          handleNameStampChange(
+                            stamp.id,
+                            "edgeWear",
+                            parseFloat(e.target.value),
+                          )
+                        }
+                        className="w-full accent-blue-500"
+                      />
+                    </div>
+                    <div>
+                      Ink drag / smudge (
+                      {Math.round((stamp.nameDesigner.smudge ?? 0.14) * 100)}%)
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={stamp.nameDesigner.smudge ?? 0.14}
+                        onChange={(e) =>
+                          handleNameStampChange(
+                            stamp.id,
+                            "smudge",
                             parseFloat(e.target.value),
                           )
                         }
@@ -5092,59 +6333,38 @@ export default function Home() {
                       <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2">
                         O/E (At Admission) Vitals
                       </h4>
+                      <div className="mb-3">
+                        <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">
+                          General Condition
+                        </label>
+                        <input
+                          type="text"
+                          value={data.admissionCondition}
+                          onChange={(e) =>
+                            handleInputChange(
+                              "admissionCondition",
+                              e.target.value,
+                            )
+                          }
+                          className="w-full bg-slate-955 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-100 focus:outline-none"
+                        />
+                      </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">
-                            Pulse
-                          </label>
-                          <input
-                            type="text"
-                            value={data.pulse}
-                            onChange={(e) =>
-                              handleInputChange("pulse", e.target.value)
-                            }
-                            className="w-full bg-slate-955 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-100 focus:outline-none"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">
-                            BP
-                          </label>
-                          <input
-                            type="text"
-                            value={data.bp}
-                            onChange={(e) =>
-                              handleInputChange("bp", e.target.value)
-                            }
-                            className="w-full bg-slate-955 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-100 focus:outline-none"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">
-                            Temp
-                          </label>
-                          <input
-                            type="text"
-                            value={data.temp}
-                            onChange={(e) =>
-                              handleInputChange("temp", e.target.value)
-                            }
-                            className="w-full bg-slate-955 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-100 focus:outline-none"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">
-                            Spo2
-                          </label>
-                          <input
-                            type="text"
-                            value={data.spo2}
-                            onChange={(e) =>
-                              handleInputChange("spo2", e.target.value)
-                            }
-                            className="w-full bg-slate-955 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-100 focus:outline-none"
-                          />
-                        </div>
+                        {admissionExamFields.map(({ key, label }) => (
+                          <div key={key}>
+                            <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">
+                              {label}
+                            </label>
+                            <input
+                              type="text"
+                              value={data[key]}
+                              onChange={(e) =>
+                                handleInputChange(key, e.target.value)
+                              }
+                              className="w-full bg-slate-955 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-100 focus:outline-none"
+                            />
+                          </div>
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -5345,10 +6565,7 @@ export default function Home() {
                           className="text-[9px] text-right space-y-0.5"
                           style={{ color: data.reportTheme.muted }}
                         >
-                          <p
-                            className="font-bold"
-                            style={{ color: data.reportTheme.heading }}
-                          >
+                          <p className="font-bold">
                             {data.hospitalSub}
                           </p>
                           <p>{data.hospitalAddress}</p>
@@ -5410,6 +6627,14 @@ export default function Home() {
                           <span className="font-bold text-gray-900">
                             {calculateAge(data.dob, data.admitDate)} Year(s) /{" "}
                             {data.ageSex.split("/")[1]?.trim() || "Male"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="font-semibold text-gray-700">
+                            Date of Birth:
+                          </span>{" "}
+                          <span className="font-bold text-gray-900">
+                            {data.dob}
                           </span>
                         </div>
                         <div>
@@ -5525,10 +6750,7 @@ export default function Home() {
                           className="text-[9px] text-right space-y-0.5"
                           style={{ color: data.reportTheme.muted }}
                         >
-                          <p
-                            className="font-bold"
-                            style={{ color: data.reportTheme.heading }}
-                          >
+                          <p className="font-bold">
                             {data.hospitalSub}
                           </p>
                           <p>{data.hospitalAddress}</p>
@@ -5795,10 +7017,7 @@ export default function Home() {
                             className="text-[8px] text-right leading-tight"
                             style={{ color: data.reportTheme.muted }}
                           >
-                            <p
-                              className="font-bold"
-                              style={{ color: data.reportTheme.heading }}
-                            >
+                            <p className="font-bold">
                               {data.hospitalSub}
                             </p>
                             <p>{data.hospitalAddress}</p>
@@ -6030,40 +7249,43 @@ export default function Home() {
                           </div>
                         </div>
 
-                        {/* Vitals Table */}
-                        <div className="mt-3">
-                          <p className="font-bold underline text-gray-800 mb-1.5">
-                            O/E (At admission)
-                          </p>
-                          <div className="grid grid-cols-2 border border-gray-300 rounded-sm text-[9.5px]">
-                            <div className="p-1.5 border-r border-b border-gray-300 grid grid-cols-2">
-                              <span className="text-gray-500">Pulse:</span>
-                              <span className="font-bold">{data.pulse}</span>
-                            </div>
-                            <div className="p-1.5 border-b border-gray-300 grid grid-cols-2">
-                              <span className="text-gray-500">Pallor:</span>
-                              <span className="font-bold">{data.pallor}</span>
-                            </div>
-                            <div className="p-1.5 border-r border-b border-gray-300 grid grid-cols-2">
-                              <span className="text-gray-500">
-                                Blood Pressure:
-                              </span>
-                              <span className="font-bold">{data.bp}</span>
-                            </div>
-                            <div className="p-1.5 border-b border-gray-300 grid grid-cols-2">
-                              <span className="text-gray-500">Cyanosis:</span>
-                              <span className="font-bold">{data.cyanosis}</span>
-                            </div>
-                            <div className="p-1.5 border-r border-gray-300 grid grid-cols-2">
-                              <span className="text-gray-500">Temp:</span>
-                              <span className="font-bold">{data.temp}</span>
-                            </div>
-                            <div className="p-1.5 grid grid-cols-2">
-                              <span className="text-gray-500">Edema:</span>
-                              <span className="font-bold">{data.edema}</span>
-                            </div>
+                        {/* Admission examination */}
+                        {(data.admissionCondition.trim() ||
+                          admissionExamFields.some(({ key }) =>
+                            data[key].trim(),
+                          )) && (
+                          <div className="mt-3">
+                            <p className="font-bold underline text-gray-800 mb-1.5">
+                              O/E (At admission)
+                            </p>
+                            {data.admissionCondition.trim() && (
+                              <p className="mb-1.5">
+                                {data.admissionCondition}
+                              </p>
+                            )}
+                            {admissionExamFields.some(({ key }) =>
+                              data[key].trim(),
+                            ) && (
+                              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[9.5px]">
+                                {admissionExamFields
+                                  .filter(({ key }) => data[key].trim())
+                                  .map(({ key, label }) => (
+                                    <div
+                                      key={key}
+                                      className="grid grid-cols-2 gap-2"
+                                    >
+                                      <span className="text-gray-500">
+                                        {label}:
+                                      </span>
+                                      <span className="font-bold">
+                                        {data[key]}
+                                      </span>
+                                    </div>
+                                  ))}
+                              </div>
+                            )}
                           </div>
-                        </div>
+                        )}
                       </div>
 
                       {/* Note Footer */}
@@ -6364,7 +7586,7 @@ export default function Home() {
                               <p className="font-bold text-emerald-800">
                                 Discharge Follow Up Visit Date:
                               </p>
-                              <p className="text-lg font-black text-emerald-950 mt-1">
+                              <p className="text-[11px] font-semibold text-emerald-950 mt-1">
                                 {data.dischargeFollowUpVisitDate}
                               </p>
                             </div>

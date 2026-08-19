@@ -1,5 +1,3 @@
-const imageFieldNames = new Set(["image", "logoImage", "watermarkImage"]);
-
 export const calculateAge = (dobString: string, admitDateString: string): number => {
   if (!dobString || !admitDateString) return 0;
   try {
@@ -17,18 +15,4 @@ export const calculateAge = (dobString: string, admitDateString: string): number
   } catch {
     return 0;
   }
-};
-
-// Image data is excluded from the general report snapshot. Stamp images are
-// sent separately by patient-api and stored in the linked stamp collection.
-export const stripImageFields = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(stripImageFields);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([key]) => !imageFieldNames.has(key))
-        .map(([key, entry]) => [key, stripImageFields(entry)]),
-    );
-  }
-  return value;
 };

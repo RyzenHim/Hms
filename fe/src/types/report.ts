@@ -13,6 +13,8 @@ export interface FindingItem {
 export interface StampDesigner {
   name: string;
   mainText: string;
+  centerContent?: "text" | "medicalSymbol";
+  symbolScale?: number;
   topText: string;
   bottomText: string;
   color: string;
@@ -26,6 +28,10 @@ export interface StampDesigner {
   inkSpill: number;
   sizeMismatch: number;
   textOpacityVariation: number;
+  pressureVariation?: number;
+  inkBleed?: number;
+  edgeWear?: number;
+  smudge?: number;
   borderEnabled: boolean;
   borderWidth: number;
 }
@@ -46,6 +52,10 @@ export interface NameStampDesigner {
   inkSpill: number;
   sizeMismatch: number;
   textOpacityVariation: number;
+  pressureVariation?: number;
+  inkBleed?: number;
+  edgeWear?: number;
+  smudge?: number;
   borderEnabled: boolean;
   borderWidth: number;
 }
@@ -54,6 +64,7 @@ export interface Stamp {
   id: string;
   label: string;
   image: string;
+  imagePublicId?: string;
   size: number;
   opacity: number;
   x: number;
@@ -70,6 +81,7 @@ export interface Stamp {
 export interface HeaderLogo {
   id: string;
   image: string;
+  imagePublicId?: string;
   size: number;
   width?: number;
   height?: number;
@@ -82,6 +94,7 @@ export interface HeaderLogo {
 export interface LogoSettings {
   logoType: "text" | "image";
   logoImage: string;
+  logoImagePublicId?: string;
   logoImageWidth: number;
   logoImageHeight: number;
   logoImageX: number;
@@ -168,6 +181,7 @@ export interface ReportData {
   pastHistory: string;
   familyHistory: string;
   allergy: string;
+  admissionCondition: string;
   pulse: string;
   bp: string;
   temp: string;
@@ -194,6 +208,7 @@ export interface ReportData {
   customPages: string[];
   logoType: "text" | "image";
   logoImage: string;
+  logoImagePublicId?: string;
   logoImageWidth: number;
   logoImageHeight: number;
   logoImageX: number;
@@ -209,6 +224,7 @@ export interface ReportData {
   watermarkEnabled: boolean;
   watermarkImageEnabled: boolean;
   watermarkImage: string;
+  watermarkImagePublicId?: string;
   watermarkOpacity: number;
   watermarkPages: number[];
   watermarkX: number;

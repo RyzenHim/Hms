@@ -22,8 +22,8 @@ const patientSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
-    // Keeps every non-image field from the report form without discarding
-    // document-specific settings as the form evolves.
+    // Keeps the complete report form, including document-specific layout,
+    // color, logo and watermark settings as the form evolves.
     patientDetails: {
       type: mongoose.Schema.Types.Mixed,
       required: true,

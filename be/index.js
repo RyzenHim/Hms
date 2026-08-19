@@ -1,6 +1,8 @@
 require("dotenv").config();
+const crypto = require("crypto");
 const mongoose = require("mongoose");
 const express = require("express");
+const { cloudinary, isCloudinaryConfigured } = require("./config/cloudinary");
 const Patient = require("./models/Patient");
 const StampConfiguration = require("./models/StampConfiguration");
 const app = express();
@@ -18,7 +20,6 @@ app.use((req, res, next) => {
   next();
 });
 
-const imageFieldNames = new Set(["image", "logoImage", "watermarkImage"]);
 const hospitalFieldNames = [
   "hospitalName",
   "hospitalSub",
@@ -35,18 +36,6 @@ const hospitalFieldNames = [
   "radiologyStampLabel",
   "radiologyStampSubtext",
 ];
-
-const stripImageFields = (value) => {
-  if (Array.isArray(value)) return value.map(stripImageFields);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([key]) => !imageFieldNames.has(key))
-        .map(([key, entry]) => [key, stripImageFields(entry)]),
-    );
-  }
-  return value;
-};
 
 const getHospitalDetails = (patientDetails) =>
   Object.fromEntries(
@@ -65,7 +54,7 @@ const getPatientDetailsFromRequest = (req) => {
     : Array.isArray(embeddedStamps)
       ? embeddedStamps
       : null;
-  const patientDetails = stripImageFields(reportDetails);
+  const patientDetails = reportDetails;
   const uhid = typeof patientDetails?.uhid === "string" ? patientDetails.uhid.trim() : "";
   return { patientDetails, stamps, uhid };
 };
@@ -74,6 +63,56 @@ const getPrimaryConsultant = (patientDetails) =>
   typeof patientDetails?.primaryConsultant === "string"
     ? patientDetails.primaryConsultant
     : "";
+
+const cloudinaryPublicIdFromUrl = (imageUrl) => {
+  try {
+    const url = new URL(imageUrl);
+    if (!url.hostname.endsWith("cloudinary.com")) return "";
+    const fileName = decodeURIComponent(url.pathname.split("/").pop() || "");
+    return fileName.replace(/\.[^.]+$/, "");
+  } catch {
+    return "";
+  }
+};
+
+const clearStoredImageReferences = (value, imageUrl, publicId) => {
+  if (Array.isArray(value)) {
+    return value.map((entry) =>
+      clearStoredImageReferences(entry, imageUrl, publicId),
+    );
+  }
+  if (!value || typeof value !== "object") return value;
+
+  const imageFields = new Set(["image", "logoImage", "watermarkImage"]);
+  const entries = Object.entries(value);
+
+  return Object.fromEntries(
+    entries.map(([key, entry]) => {
+      if (imageFields.has(key)) {
+        const pairedPublicId = value[`${key}PublicId`];
+        if (
+          (imageUrl && entry === imageUrl) ||
+          (publicId && pairedPublicId === publicId)
+        ) {
+          return [key, ""];
+        }
+      }
+      if (key.endsWith("PublicId")) {
+        const pairedImage = value[key.slice(0, -"PublicId".length)];
+        if (
+          (publicId && entry === publicId) ||
+          (imageUrl && pairedImage === imageUrl)
+        ) {
+          return [key, ""];
+        }
+      }
+      return [
+        key,
+        clearStoredImageReferences(entry, imageUrl, publicId),
+      ];
+    }),
+  );
+};
 
 const savePatientStampConfiguration = async (patientId, stamps) => {
   // A missing stamp payload means an older client is saving the patient; do
@@ -100,6 +139,114 @@ mongoose
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
+});
+
+app.post("/api/uploads/images", async (req, res) => {
+  try {
+    if (!isCloudinaryConfigured()) {
+      return res.status(503).json({ message: "Cloudinary is not configured." });
+    }
+
+    const requestedDataUrl = typeof req.body?.dataUrl === "string" ? req.body.dataUrl : "";
+    const dataUrlMatch = requestedDataUrl.match(
+      /^data:(image\/[a-zA-Z0-9.+-]+)(;base64|;utf8)?,([\s\S]*)$/,
+    );
+    if (!dataUrlMatch) {
+      return res.status(400).json({ message: "A valid image file is required." });
+    }
+    const dataUrl = dataUrlMatch[2] === ";base64"
+      ? requestedDataUrl
+      : `data:${dataUrlMatch[1]};base64,${Buffer.from(
+          decodeURIComponent(dataUrlMatch[3]),
+          "utf8",
+        ).toString("base64")}`;
+
+    const assetType = String(req.body?.assetType || "document-image")
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "-")
+      .slice(0, 60);
+    const contentHash = crypto.createHash("sha256").update(dataUrl).digest("hex").slice(0, 24);
+    const publicId = `hms_${assetType}_${contentHash}`;
+
+    const upload = await cloudinary.uploader.upload(dataUrl, {
+      resource_type: "image",
+      asset_folder: `hms/${assetType}`,
+      public_id: publicId,
+      unique_filename: false,
+      overwrite: false,
+    });
+
+    res.json({
+      url: upload.secure_url,
+      publicId: upload.public_id,
+      width: upload.width,
+      height: upload.height,
+      existing: Boolean(upload.existing),
+    });
+  } catch (error) {
+    console.error("Cloudinary image upload failed:", error);
+    res.status(500).json({ message: error?.message || "Unable to upload image." });
+  }
+});
+
+app.delete("/api/uploads/images", async (req, res) => {
+  try {
+    if (!isCloudinaryConfigured()) {
+      return res.status(503).json({ message: "Cloudinary is not configured." });
+    }
+
+    const imageUrl = typeof req.body?.imageUrl === "string" ? req.body.imageUrl : "";
+    const requestedPublicId =
+      typeof req.body?.publicId === "string" ? req.body.publicId : "";
+    const publicId = requestedPublicId || cloudinaryPublicIdFromUrl(imageUrl);
+    if (publicId && !/^hms_[a-z0-9_-]+$/.test(publicId)) {
+      return res.status(400).json({ message: "This image cannot be deleted by HMS." });
+    }
+    if (!imageUrl && !publicId) {
+      return res.status(400).json({ message: "An image reference is required." });
+    }
+
+    let cloudinaryResult = "not_applicable";
+    if (publicId) {
+      const deletion = await cloudinary.uploader.destroy(publicId, {
+        resource_type: "image",
+        invalidate: true,
+      });
+      cloudinaryResult = deletion.result;
+    }
+
+    const patientId = typeof req.body?.patientId === "string" ? req.body.patientId : "";
+    if (patientId && mongoose.isValidObjectId(patientId)) {
+      const patient = await Patient.findById(patientId);
+      if (patient) {
+        patient.patientDetails = clearStoredImageReferences(
+          patient.patientDetails,
+          imageUrl,
+          publicId,
+        );
+        patient.markModified("patientDetails");
+        await patient.save();
+      }
+
+      const stampConfiguration = await StampConfiguration.findOne({
+        patient: patientId,
+      });
+      if (stampConfiguration) {
+        stampConfiguration.stamps = clearStoredImageReferences(
+          stampConfiguration.stamps,
+          imageUrl,
+          publicId,
+        );
+        stampConfiguration.markModified("stamps");
+        await stampConfiguration.save();
+      }
+    }
+
+    res.json({ message: "Image deleted successfully.", cloudinaryResult });
+  } catch (error) {
+    console.error("Cloudinary image deletion failed:", error);
+    res.status(500).json({ message: error?.message || "Unable to delete image." });
+  }
 });
 
 app.get("/api/patients", async (_req, res) => {

@@ -1,4 +1,3 @@
-import { stripImageFields } from "./report-utils";
 import type { PatientListItem, ReportData } from "../types/report";
 
 export interface SavedPatient {
@@ -31,6 +30,41 @@ export const getPatient = async (patientId: string): Promise<SavedPatient> => {
   return result.patient;
 };
 
+export const uploadDocumentImage = async (
+  dataUrl: string,
+  assetType: string,
+): Promise<{ url: string; publicId: string }> => {
+  const response = await fetch(`${apiBaseUrl()}/api/uploads/images`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dataUrl, assetType }),
+  });
+  const result = await readResponse<{ url?: string; publicId?: string }>(
+    response,
+  );
+  if (!result.url || !result.publicId) {
+    throw new Error("Cloudinary did not return an image URL.");
+  }
+  return { url: result.url, publicId: result.publicId };
+};
+
+export const deleteDocumentImage = async ({
+  imageUrl,
+  publicId,
+  patientId,
+}: {
+  imageUrl: string;
+  publicId?: string;
+  patientId?: string | null;
+}): Promise<void> => {
+  const response = await fetch(`${apiBaseUrl()}/api/uploads/images`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ imageUrl, publicId, patientId }),
+  });
+  await readResponse<Record<string, never>>(response);
+};
+
 export const savePatient = async (
   patientDetails: ReportData,
   patientId: string | null,
@@ -44,7 +78,7 @@ export const savePatient = async (
       method: patientId ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        patientDetails: stripImageFields(reportDetails),
+        patientDetails: reportDetails,
         stampConfiguration: { stamps: dischargeSummaryStamps },
       }),
     },
