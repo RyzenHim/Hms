@@ -1,4 +1,4 @@
-import type { PatientListItem, ReportData } from "../types/report";
+import type { PatientListItem, ReportData, Stamp } from "../types/report";
 
 export interface SavedPatient {
   _id: string;
@@ -89,6 +89,32 @@ export const savePatient = async (
   const id = result.patient?.id || result.patient?._id || patientId;
   if (!id) throw new Error("The saved patient identifier was not returned.");
   return { id, message: result.message || "Patient details saved successfully." };
+};
+
+export const saveStampConfiguration = async (
+  patientId: string,
+  stamps: Stamp[],
+): Promise<{ stamps: Stamp[]; message: string; placementCount: number }> => {
+  const response = await fetch(
+    `${apiBaseUrl()}/api/patients/${patientId}/stamps`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stamps }),
+    },
+  );
+  const result = await readResponse<{
+    stamps?: Stamp[];
+    placementCount?: number;
+  }>(response);
+  if (!Array.isArray(result.stamps)) {
+    throw new Error("Saved stamp settings were not returned.");
+  }
+  return {
+    stamps: result.stamps,
+    message: result.message || "Stamp settings saved successfully.",
+    placementCount: result.placementCount ?? 0,
+  };
 };
 
 export const removePatient = async (patientId: string): Promise<void> => {

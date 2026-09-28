@@ -60,6 +60,23 @@ export interface NameStampDesigner {
   borderWidth: number;
 }
 
+export type StampDocumentType =
+  | "diagnostic"
+  | "discharge"
+  | "fitness"
+  | "opd";
+
+export interface StampPlacement {
+  documentType: StampDocumentType;
+  page: number;
+  size: number;
+  opacity: number;
+  x: number;
+  y: number;
+  rotation: number;
+  filter: "none" | "grayscale" | "sepia" | "brightness";
+}
+
 export interface Stamp {
   id: string;
   label: string;
@@ -73,7 +90,9 @@ export interface Stamp {
   filter: "none" | "grayscale" | "sepia" | "brightness";
   isDefault: boolean;
   pages: number[];
-  documentTypes: ("diagnostic" | "discharge" | "fitness")[];
+  documentTypes: StampDocumentType[];
+  /** Independent usages of this reusable stamp. Legacy records use the fields above. */
+  placements?: StampPlacement[];
   designer?: StampDesigner;
   nameDesigner?: NameStampDesigner;
 }
@@ -128,11 +147,14 @@ export interface ReportData {
   emergencyStripeTextColor: string;
   emergencyStripeWidth: number;
   showUhidAtTop: boolean;
+  showUhidBarcode: boolean;
+  showUhidBarcodeInDetails: boolean;
   cin: string;
   hospitalTagline: string;
   dischargeFooterNote: string;
   dischargeFooterBrand: string;
   fitnessFooterText: string;
+  opdFooterText: string;
   radiologyStampLabel: string;
   radiologyStampSubtext: string;
   patientName: string;
@@ -169,6 +191,23 @@ export interface ReportData {
   fitRemarks: string;
   fitDate: string;
   fitSignatory: string;
+  opdTitle: string;
+  opdVisitDate: string;
+  opdDepartment: string;
+  opdDoctorName: string;
+  opdRegistrationNumber: string;
+  opdPatientRegistrationNumber: string;
+  opdDoctorQualifications: string;
+  opdDayTime: string;
+  opdValidUpto: string;
+  opdHeight: string;
+  opdWeight: string;
+  opdBloodPressure: string;
+  opdBmi: string;
+  opdPulse: string;
+  opdTemperature: string;
+  opdRespiration: string;
+  opdPages: string[];
   admitDate: string;
   dischargeDateTime: string;
   primaryConsultant: string;
@@ -217,10 +256,7 @@ export interface ReportData {
   logoTextSize: number;
   logoTextWeight: number;
   headerLogos: HeaderLogo[];
-  documentLogoSettings: Record<
-    "diagnostic" | "discharge" | "fitness",
-    LogoSettings
-  >;
+  documentLogoSettings: Record<StampDocumentType, LogoSettings>;
   watermarkEnabled: boolean;
   watermarkImageEnabled: boolean;
   watermarkImage: string;

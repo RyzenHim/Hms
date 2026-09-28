@@ -1,0 +1,20 @@
+{
+  "id": "airtel",
+  "name": "Airtel",
+  "legalName": "Bharti Hexacom Limited",
+  "logoUrl": "https://res.cloudinary.com/dicopsusz/image/upload/v1790280544/hms/wifi/operators/airtel/reference-logo-036b20d254874f1c.png",
+  "logoPublicId": "hms/wifi/operators/airtel/reference-logo-036b20d254874f1c",
+  "sourceSha256": "036b20d254874f1c9a8296608a3f2b1e444fd99c0f78cb88fcbc2b4dce91d8ff",
+  "width": 1280,
+  "height": 582,
+  "paymentLogoUrl": "https://res.cloudinary.com/dicopsusz/image/upload/v1790356958/hms/wifi/operators/airtel/reference-payments-bank-logo-2dc9e803281fa899.png",
+  "paymentLogoPublicId": "hms/wifi/operators/airtel/reference-payments-bank-logo-2dc9e803281fa899",
+  "paymentSourceSha256": "2dc9e803281fa899ca39b71c6d477ba5ee28024563f9b492d78c95d81bc184b8",
+  "paymentWidth": 352,
+  "paymentHeight": 70,
+  "signatureUrl": "https://res.cloudinary.com/dicopsusz/image/upload/v1790396361/hms/wifi/operators/airtel/reference-signature-aa7f6567f029baf5.png",
+  "signaturePublicId": "hms/wifi/operators/airtel/reference-signature-aa7f6567f029baf5",
+  "signatureSourceSha256": "aa7f6567f029baf5cb7d43602c7aaeb8851c9e0e775301ce50b87560d6de47d5",
+  "signatureWidth": 156,
+  "signatureHeight": 70
+}

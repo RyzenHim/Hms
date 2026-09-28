@@ -1,5 +1,28 @@
 const mongoose = require("mongoose");
 
+const stampPlacementSchema = new mongoose.Schema(
+  {
+    stampId: { type: String, required: true },
+    documentType: {
+      type: String,
+      enum: ["diagnostic", "discharge", "fitness", "opd"],
+      required: true,
+    },
+    page: { type: Number, required: true, min: 1 },
+    size: { type: Number, required: true },
+    opacity: { type: Number, required: true },
+    x: { type: Number, required: true },
+    y: { type: Number, required: true },
+    rotation: { type: Number, required: true },
+    filter: {
+      type: String,
+      enum: ["none", "grayscale", "sepia", "brightness"],
+      required: true,
+    },
+  },
+  { _id: false },
+);
+
 const stampConfigurationSchema = new mongoose.Schema(
   {
     // A patient owns one stamp configuration document. Keeping the full stamp
@@ -14,6 +37,12 @@ const stampConfigurationSchema = new mongoose.Schema(
     },
     stamps: {
       type: [mongoose.Schema.Types.Mixed],
+      default: [],
+    },
+    // Queryable, validated placement records. Stamp artwork/designer settings
+    // remain in `stamps`; each page usage owns one independent record here.
+    placements: {
+      type: [stampPlacementSchema],
       default: [],
     },
   },
