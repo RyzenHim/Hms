@@ -199,7 +199,7 @@ function emptyHistoryFields(offset: 1 | 2 | 3): Partial<WifiBillData> {
 /**
  * Hydrate the selected statement from stored month/account records. The plan
  * fields remain editable and drive the selected month's current charges plus
- * the single plan-priced last-payment pair shown on the statement.
+ * the last payment and the GST-inclusive previous-month summary row.
  * A missing selected record is rejected so an invoice number must be generated
  * and persisted once by the API before rendering or export.
  */
@@ -224,7 +224,7 @@ export function buildSelectedMonthBillData(
     ...emptyHistoryFields(3),
     ...(previousRecord ? {
       // Non-empty markers create the single previous-month row. The exact
-      // plan input replaces every amount in applyPlanBasedLastPayment below.
+      // plan calculation replaces every amount in applyPlanBasedLastPayment below.
       history1PreviousDues: "0",
       history1Payments: "0",
       history1PaymentCoupon: "0",
@@ -530,8 +530,8 @@ function inputAmountFromPaise(paise: number): string {
 
 /**
  * The generated statement shows one last payment equal to the entered plan
- * price. Current charges for the one displayed previous-month row use the
- * same GST-exclusive plan calculation as the current statement.
+ * price. The displayed previous-month row uses the full GST-inclusive payable
+ * for both dues and its equal negative payment.
  */
 export function applyPlanBasedLastPayment(data: WifiBillData): WifiBillData {
   const exclusiveData: WifiBillData = { ...data, amountMode: "exclusive" };
@@ -555,8 +555,8 @@ export function applyPlanBasedLastPayment(data: WifiBillData): WifiBillData {
     previousBalance: planPrice,
     paymentReceived: signedPlanPayment,
     ...(hasPreviousMonth ? {
-      history1PreviousDues: planPrice,
-      history1Payments: signedPlanPayment,
+      history1PreviousDues: currentChargesWithGst,
+      history1Payments: currentChargesWithGst === "0" ? "0" : `-${currentChargesWithGst}`,
       history1PaymentCoupon: "0",
       history1Credits: "0",
       history1CurrentCharges: currentChargesWithGst,

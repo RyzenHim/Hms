@@ -503,8 +503,8 @@ function drawPageOne(pdf: JsPDF, invoice: WifiInvoice, assets: WifiVectorPdfAsse
   setFillColor(pdf, BLACK);
   pdf.rect(MARGIN_X, balanceY, CONTENT_WIDTH, balanceHeight, "F");
   const balances = [
-    ["Last bill amount", formatMoney(totals.previousBalance)],
-    ["Payment made", formatDebit(totals.paymentReceived)],
+    ["Last bill amount", optionalMoney(invoice.statementRow.previousDues)],
+    ["Payment made", optionalMoney(invoice.statementRow.payments, true)],
     ["Payment coupon", formatDebit(totals.paymentCoupon)],
     ["Credits", formatDebit(totals.credits)],
     [WIFI_BILL_LABELS.currentCharges, formatMoney(totals.totalCurrentCharges)],
@@ -546,8 +546,8 @@ function drawPageOne(pdf: JsPDF, invoice: WifiInvoice, assets: WifiVectorPdfAsse
       { cells: ["Revised charges", "-", "-", "-", "-"] },
       { cells: ["Taxes (GST)", "-", "-", formatMoney(totals.gstTotal), formatMoney(totals.gstTotal)] },
       { cells: [{ text: WIFI_BILL_LABELS.currentCharges, bold: true }, "", "", "", formatMoney(totals.totalCurrentCharges)], kind: "total" },
-      { cells: [{ text: "Last bill amount", bold: true }, "", "", "", formatMoney(totals.previousBalance)] },
-      { cells: [{ text: "Last payment made", bold: true }, "", "", "", formatDebit(totals.paymentReceived)] },
+      { cells: [{ text: "Last bill amount", bold: true }, "", "", "", optionalMoney(invoice.statementRow.previousDues)] },
+      { cells: [{ text: "Last payment made", bold: true }, "", "", "", optionalMoney(invoice.statementRow.payments, true)] },
       { cells: [{ text: WIFI_BILL_LABELS.amountPayable, bold: true }, "", "", "", { text: formatMoney(totals.totalPayable), bold: true }], kind: "grand" },
     ],
   });
@@ -865,8 +865,8 @@ function drawPageFour(pdf: JsPDF, invoice: WifiInvoice, assets: WifiVectorPdfAss
     cells: [
       totals.paymentReceived !== 0 ? source.paymentMethod || "Payment received" : "No payment recorded",
       source.paymentDate ? formatBillDate(source.paymentDate) : "-",
-      formatDebit(totals.paymentReceived),
-      formatDebit(totals.paymentReceived),
+      formatDebit(totals.totalPayable),
+      formatDebit(totals.totalPayable),
     ],
   }];
   y = drawTable(pdf, {

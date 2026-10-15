@@ -36,25 +36,7 @@ export function formatPdfSize(bytes: number): string {
 }
 
 function createPdf(jsPDF: typeof import("jspdf").jsPDF): PdfDocument {
-  return new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true, putOnlyUsedFonts: true, precision: 2 });
-}
-
-async function appendCanvasToPdf(pdf: PdfDocument, canvas: HTMLCanvasElement, page: PdfPageToRender, options: PdfRenderOptions, addPage: boolean) {
-  const format = options.imageFormat ?? "JPEG";
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((value) => value ? resolve(value) : reject(new Error("PDF image encoding failed.")),
-      format === "PNG" ? "image/png" : "image/jpeg", options.jpegQuality ?? DEFAULT_PDF_JPEG_QUALITY);
-  });
-  const imageData = new Uint8Array(await blob.arrayBuffer());
-  const pdfWidth = pdf.internal.pageSize.getWidth();
-  const pdfHeight = pdf.internal.pageSize.getHeight();
-  const ratio = Math.min(pdfWidth / canvas.width, pdfHeight / canvas.height);
-  const width = canvas.width * ratio;
-  const height = canvas.height * ratio;
-  const x = (pdfWidth - width) / 2;
-  if (addPage) pdf.addPage();
-  pdf.addImage(imageData, format, x, 0, width, height, undefined, "FAST");
-  addPdfLinkAnnotations(pdf, page.element, { x, y: 0, width, height });
+  return new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true, putOnlyUsedFonts: true, precision: 4 });
 }
 
 export function isSupportedPdfLink(value: string): boolean {
@@ -100,102 +82,162 @@ export function addPdfLinkAnnotations(
   }
 }
 
-/** Render document pages with the same A4 sizing and compression across tools. */
-export const buildOptimizedPdf = async (
-  pages: PdfPageToRender[],
-  options: PdfRenderOptions = {},
-) => {
-  if (pages.length === 0) {
-    throw new Error("Select at least one page to generate a PDF.");
-  }
+export type PdfVariantOptions = {
+  separate?: boolean;
+  signal?: AbortSignal;
+  serialize?: (pdf: PdfDocument) => Blob;
+  onProgress?: (page: number, total: number) => void;
+};
 
-  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-    import("html2canvas-pro"),
-    import("jspdf"),
+async function capturePage(page: PdfPageToRender, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  const [{ default: html2canvas }, { createPdfDisplayList }] = await Promise.all([
+    import("html2canvas-pro"), import("./pdf-display-list.ts"),
   ]);
-
-  // Capture only after web fonts have settled so the preview and PDF agree.
-  await pages[0].element.ownerDocument.fonts?.ready;
-
-  const pdf = createPdf(jsPDF);
-
-  for (let index = 0; index < pages.length; index++) {
-    const canvas = await html2canvas(pages[index].element, {
-      scale: options.scale ?? DEFAULT_PDF_RENDER_SCALE,
-      useCORS: true,
-      logging: false,
-      backgroundColor: "#ffffff",
-      allowTaint: true,
+  await page.element.ownerDocument.fonts?.ready;
+  signal?.throwIfAborted();
+  const bounds = page.element.getBoundingClientRect();
+  const width = bounds.width;
+  const height = bounds.height;
+  if (width <= 0 || height <= 0) throw new Error(`The selected PDF page “${page.label}” is not visible.`);
+  const captureScale = Math.max(...PDF_QUALITY_PRESETS.map((preset) => preset.scale));
+  const recording = createPdfDisplayList(page.element.ownerDocument, width * captureScale, height * captureScale);
+  try {
+    await html2canvas(page.element, {
+      canvas: recording.canvas,
+      // No full-page bitmap is allocated. A high recording scale preserves
+      // the pixels of temporary filter/effect surfaces for every quality.
+      scale: captureScale, useCORS: true, logging: false, backgroundColor: "#ffffff", allowTaint: false,
     });
+    signal?.throwIfAborted();
+    return { ...recording, width, height, captureScale, svgSources: await prepareSvgSources(page.element, recording.imageSources, signal) };
+  } catch (error) {
+    recording.dispose();
+    throw error;
+  }
+}
 
-    try {
-      await appendCanvasToPdf(pdf, canvas, pages[index], options, index > 0);
-    } finally {
-      // Release each page's large canvas, including when encoding fails.
-      canvas.width = 1;
-      canvas.height = 1;
+async function prepareSvgSources(element: HTMLDivElement, sources: Set<string>, signal?: AbortSignal): Promise<Map<string, string>> {
+  const svgSources = new Map<string, string>();
+  for (const source of sources) {
+    signal?.throwIfAborted();
+    if (source.startsWith("data:image/svg+xml")) {
+      const comma = source.indexOf(",");
+      try {
+        const value = source.slice(0, comma).includes(";base64") ? atob(source.slice(comma + 1)) : decodeURIComponent(source.slice(comma + 1));
+        svgSources.set(source, value);
+      } catch { /* Invalid or unsupported artwork stays an image. */ }
+    } else if (/\.svg(?:[?#]|$)/i.test(source)) {
+      const response = await fetch(source, { signal });
+      if (!response.ok) throw new Error("Unable to load the SVG artwork for the PDF.");
+      svgSources.set(source, await response.text());
     }
   }
+  // QR images already validated by the bill flow become native module paths.
+  const qrImages = element.querySelectorAll<HTMLImageElement>("img[data-pdf-qr]");
+  if (qrImages.length) {
+    const { default: QRCode } = await import("qrcode");
+    for (const image of qrImages) {
+      const payload = image.dataset.pdfQr;
+      if (!payload || !isSupportedPdfLink(payload)) continue;
+      const { modules } = QRCode.create(payload, { errorCorrectionLevel: "M" });
+      const margin = 4;
+      const size = modules.size + margin * 2;
+      let path = "";
+      for (let row = 0; row < modules.size; row++) {
+        for (let column = 0; column < modules.size;) {
+          if (!modules.data[row * modules.size + column]) { column++; continue; }
+          const start = column;
+          while (column < modules.size && modules.data[row * modules.size + column]) column++;
+          const length = column - start;
+          path += `M${start + margin} ${row + margin}h${length}v1h-${length}z`;
+        }
+      }
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}"><rect width="${size}" height="${size}" fill="#ffffff"/><path d="${path}" fill="#000000"/></svg>`;
+      svgSources.set(image.currentSrc || image.src, svg);
+      svgSources.set(image.src, svg);
+    }
+  }
+  return svgSources;
+}
 
+async function drawRecordedPage(
+  pdf: PdfDocument,
+  page: PdfPageToRender,
+  recording: Awaited<ReturnType<typeof capturePage>>,
+  options: PdfRenderOptions,
+  addPage: boolean,
+  signal?: AbortSignal,
+) {
+  signal?.throwIfAborted();
+  const [{ createNativePdfCanvas }, { registerPdfFonts, splitPdfTextFontRuns }, { replayPdfDisplayList }, { drawSvgArtwork }] = await Promise.all([
+    import("./pdf-native-canvas.ts"), import("./pdf-fonts.ts"), import("./pdf-display-list.ts"), import("./pdf-vector-artwork.ts"),
+  ]);
+  await registerPdfFonts(pdf, page.element.ownerDocument, recording.fonts);
+  signal?.throwIfAborted();
+  if (addPage) pdf.addPage();
+  const ratio = Math.min(pdf.internal.pageSize.getWidth() / recording.width, pdf.internal.pageSize.getHeight() / recording.height);
+  const width = recording.width * ratio;
+  const height = recording.height * ratio;
+  const x = (pdf.internal.pageSize.getWidth() - width) / 2;
+  const canvas = createNativePdfCanvas(pdf, page.element.ownerDocument, {
+    scale: options.scale ?? DEFAULT_PDF_RENDER_SCALE,
+    captureScale: recording.captureScale,
+    jpegQuality: options.jpegQuality ?? DEFAULT_PDF_JPEG_QUALITY,
+    imageFormat: options.imageFormat ?? "JPEG",
+    svgSources: recording.svgSources,
+    paintSvg: (context, svg, box) => drawSvgArtwork(context, svg, box),
+    textRuns: splitPdfTextFontRuns,
+  });
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Unable to create the PDF drawing context.");
+  context.save();
+  try {
+    context.translate(x, 0);
+    context.scale(ratio / recording.captureScale, ratio / recording.captureScale);
+    replayPdfDisplayList(context, recording.commands);
+  } finally {
+    context.restore();
+  }
+  addPdfLinkAnnotations(pdf, page.element, { x, y: 0, width, height });
+}
+
+/** Preserve the browser's layout as native PDF text/paths and selected-quality artwork. */
+export const buildOptimizedPdf = async (pages: PdfPageToRender[], options: PdfRenderOptions = {}) => {
+  if (!pages.length) throw new Error("Select at least one page to generate a PDF.");
+  const { jsPDF } = await import("jspdf");
+  const pdf = createPdf(jsPDF);
+  for (const [index, page] of pages.entries()) {
+    const recording = await capturePage(page);
+    try { await drawRecordedPage(pdf, page, recording, options, index > 0); }
+    finally { recording.dispose(); }
+  }
   return pdf;
 };
 
-/** Capture each page once, then encode every preset so displayed sizes are exact. */
-export async function buildPdfQualityVariants(
-  pages: PdfPageToRender[],
-  options: {
-    separate?: boolean;
-    signal?: AbortSignal;
-    serialize?: (pdf: PdfDocument) => Blob;
-    onProgress?: (page: number, total: number) => void;
-  } = {},
-): Promise<PdfQualityResults> {
+/** Record each page once; retain native content and encode only artwork per quality. */
+export async function buildPdfQualityVariants(pages: PdfPageToRender[], options: PdfVariantOptions = {}): Promise<PdfQualityResults> {
   if (!pages.length) throw new Error("Select at least one page to generate a PDF.");
   const { signal } = options;
   signal?.throwIfAborted();
-  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas-pro"), import("jspdf")]);
-  await pages[0].element.ownerDocument.fonts?.ready;
-  signal?.throwIfAborted();
+  const { jsPDF } = await import("jspdf");
   const serialize = options.serialize ?? ((pdf: PdfDocument) => pdf.output("blob"));
   const variants = PDF_QUALITY_PRESETS.map((preset) => ({ preset, pdf: createPdf(jsPDF), files: [] as PdfExportFile[] }));
-  const captureScale = Math.max(...PDF_QUALITY_PRESETS.map((preset) => preset.scale));
-  for (let index = 0; index < pages.length; index++) {
+  for (const [index, page] of pages.entries()) {
     signal?.throwIfAborted();
     options.onProgress?.(index + 1, pages.length);
-    const page = pages[index];
-    const canvas = await html2canvas(page.element, {
-      scale: captureScale, useCORS: true, logging: false, backgroundColor: "#ffffff", allowTaint: false,
-    });
+    const recording = await capturePage(page, signal);
     try {
       for (const variant of variants) {
         signal?.throwIfAborted();
-        const { preset } = variant;
-        const resized = page.element.ownerDocument.createElement("canvas");
-        try {
-          resized.width = Math.max(1, Math.round(canvas.width * preset.scale / captureScale));
-          resized.height = Math.max(1, Math.round(canvas.height * preset.scale / captureScale));
-          const context = resized.getContext("2d");
-          if (!context) throw new Error("Unable to prepare the PDF image.");
-          context.imageSmoothingEnabled = true;
-          context.imageSmoothingQuality = "high";
-          context.drawImage(canvas, 0, 0, resized.width, resized.height);
-          await appendCanvasToPdf(variant.pdf, resized, page, preset, !options.separate && index > 0);
-          signal?.throwIfAborted();
-          if (options.separate) {
-            variant.files.push({ blob: serialize(variant.pdf), label: page.label });
-            variant.pdf = createPdf(jsPDF);
-          }
-        } finally {
-          resized.width = 1;
-          resized.height = 1;
+        await drawRecordedPage(variant.pdf, page, recording, variant.preset, !options.separate && index > 0, signal);
+        if (options.separate) {
+          variant.files.push({ blob: serialize(variant.pdf), label: page.label });
+          variant.pdf = createPdf(jsPDF);
         }
-        // Allow paint and cancellation between encodes, especially for large bills.
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
-    } finally {
-      canvas.width = 1;
-      canvas.height = 1;
-    }
+    } finally { recording.dispose(); }
   }
   signal?.throwIfAborted();
   return Object.fromEntries(variants.map(({ preset, pdf, files }) => {

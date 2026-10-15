@@ -116,6 +116,7 @@ export function PdfExportDialog({ getPages, fileName, onClose, onPreview, serial
         <div aria-live="polite" className="text-xs text-slate-400">
           {error ? <div role="alert" className="text-red-300">{error}<button type="button" onClick={() => setAttempt((value) => value + 1)} className="ml-2 underline">Retry</button></div> : results ? "Sizes are calculated from the actual PDFs. Higher quality may produce larger files." : <span className="flex items-center gap-2"><LoaderCircle className="h-3.5 w-3.5 animate-spin" />{status}</span>}
           {separate && <p className="mt-2">Preview shows the first selected page. Download saves every selected page as a separate file.</p>}
+          <p className="mt-2">Text and codes stay sharp at every quality. Quality options control images and artwork.</p>
         </div>
       </div>
       <div className="sticky bottom-0 flex flex-wrap justify-end gap-2 border-t border-slate-800 bg-slate-950 px-5 py-4">

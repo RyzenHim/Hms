@@ -81,15 +81,17 @@ export function createWifiInvoice(
     currentCharges: number | null,
   ) => {
     const hasValues = [previousDues, payments, paymentCoupon, credits, currentCharges].some((value) => value !== null);
+    const payable = hasValues
+      ? Math.max(0, (previousDues || 0) + (payments || 0) + (paymentCoupon || 0) + (credits || 0) + (currentCharges || 0))
+      : null;
     return Object.freeze({
-      previousDues,
-      payments,
+      // Both summary rows show the full payable as dues and an equal payment.
+      previousDues: payable,
+      payments: payable === null ? null : payable === 0 ? 0 : -payable,
       paymentCoupon,
       credits,
       currentCharges,
-      payable: hasValues
-        ? Math.max(0, (previousDues || 0) + (payments || 0) + (paymentCoupon || 0) + (credits || 0) + (currentCharges || 0))
-        : null,
+      payable,
     });
   };
   const statementRow = makeStatementRow(

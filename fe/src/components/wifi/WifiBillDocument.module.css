@@ -193,8 +193,9 @@
 .legalBox p + p { margin-top: 1px; }
 .detailPage .footer { bottom: 18px; }
 .statementPage .header { margin-bottom: 14px; }
-.statementPage .header > .provider, .summaryPage .header > .provider { position: absolute; top: -14px; right: -15px; }
-.invoicePage .header > .provider { position: absolute; top: 5px; right: -15px; }
+.statementPage .header .providerLogo, .summaryPage .header .providerLogo, .invoicePage .header .providerLogo { width: 86px; }
+.statementPage .header > .provider, .summaryPage .header > .provider { position: absolute; top: -14px; right: 0; }
+.invoicePage .header > .provider { position: absolute; top: 5px; right: 0; }
 .statementPage .statementOverview { min-height: 190px; margin-bottom: 11px; }
 .statementPage .planSummary { margin-top: 11px; }
 .statementPage .paymentInstructions { min-height: 0; }

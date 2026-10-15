@@ -289,7 +289,7 @@ export function WifiBillForm({
       ), true)}
       {renderSection("Provider notices", "Review the customer-care, statutory, policy and HSN information printed on the final page.", providerInformationFields, undefined, true)}
       {renderSection("Voice tariff details", "Enter each row as Local | STD intra-circle | STD inter-circle | ISD. These values are printed in the same four columns as the reference bill.", tariffFields, undefined, true)}
-      {renderSection("Previous bill history", "Only the immediately previous month is shown. Its last bill and payment match the Plan amount; current charges include GST.", historyFields, undefined, true)}
+      {renderSection("Previous bill history", "Only the immediately previous month is shown. Previous dues and payments match its full amount payable, including GST; payments are shown as negative amounts.", historyFields, undefined, true)}
       {renderSection("Payments & adjustments", "The last bill and single last-payment amount follow the plan price. Coupons and credits remain optional signed adjustments.", paymentFields, undefined, true)}
     </fieldset>
   );

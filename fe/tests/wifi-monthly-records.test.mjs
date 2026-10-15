@@ -146,8 +146,8 @@ test("changing the plan updates every amount in the one displayed previous-month
   assert.equal(cheaperPlan.amountMode, "exclusive");
   assert.equal(cheaperPlan.previousBalance, "499");
   assert.equal(cheaperPlan.paymentReceived, "-499");
-  assert.equal(cheaperPlan.history1PreviousDues, "499");
-  assert.equal(cheaperPlan.history1Payments, "-499");
+  assert.equal(cheaperPlan.history1PreviousDues, "588.82");
+  assert.equal(cheaperPlan.history1Payments, "-588.82");
   assert.equal(cheaperPlan.history1PaymentCoupon, "0");
   assert.equal(cheaperPlan.history1Credits, "0");
   assert.equal(cheaperPlan.history1CurrentCharges, "588.82");
@@ -156,7 +156,8 @@ test("changing the plan updates every amount in the one displayed previous-month
   assert.equal(calculateWifiBill(cheaperPlan).totalCurrentCharges, 588.82);
   const invoice = createWifiInvoice(cheaperPlan);
   assert.equal(invoice.historyRows.length, 1);
-  assert.equal(invoice.historyRows[0].payments, -49_900);
+  assert.equal(invoice.historyRows[0].previousDues, 58_882);
+  assert.equal(invoice.historyRows[0].payments, -58_882);
   assert.equal(invoice.historyRows[0].currentCharges, 58_882);
   assert.equal(invoice.historyRows[0].payable, 58_882);
   assert.deepEqual(REFERENCE_WIFI_MONTHLY_RECORDS.map((record) => ({ ...record })), storedHistoryBefore);
@@ -170,4 +171,49 @@ test("stored rows use signed adjustments and missing month invoices cannot be re
     () => buildSelectedMonthBillData({ ...createReferenceWifiBill(), billMonth: "2026-10" }, REFERENCE_WIFI_MONTHLY_RECORDS, "2026-10"),
     /Persist the 2026-10 billing record/,
   );
+});
+
+test("both summary rows match previous dues and negative payments to their own amount payable", () => {
+  const invoice = createWifiInvoice(createReferenceWifiBill("2026-09"));
+  assert.equal(invoice.historyRows.length, 1);
+  assert.equal(invoice.statementRow.previousDues, 117_882);
+  assert.equal(invoice.statementRow.payments, -117_882);
+  assert.equal(invoice.statementRow.payable, 117_882);
+  for (const row of [invoice.statementRow, ...invoice.historyRows]) {
+    assert.equal(row.payable, 117_882);
+    assert.equal(row.previousDues, 117_882);
+    assert.equal(row.payments, -117_882);
+    assert.equal(row.previousDues + row.payments + row.paymentCoupon + row.credits + row.currentCharges, row.payable);
+  }
+  // The requested summary-table values do not alter the account payment fields.
+  assert.equal(invoice.source.previousBalance, "999");
+  assert.equal(invoice.source.paymentReceived, "-999");
+  assert.equal(invoice.source.history1PreviousDues, "1178.82");
+  assert.equal(invoice.source.history1Payments, "-1178.82");
+});
+
+test("each summary row keeps its own adjusted payable and exact paise when amounts differ", () => {
+  const invoice = createWifiInvoice({
+    ...createReferenceWifiBill("2026-09"),
+    rentalAmount: "399.99",
+    paymentCoupon: "-25.50",
+    credits: "-10.25",
+  });
+  assert.equal(invoice.statementRow.payable, 43_624);
+  assert.equal(invoice.historyRows[0].payable, 47_199);
+  for (const row of [invoice.statementRow, ...invoice.historyRows]) {
+    assert.equal(row.previousDues, row.payable);
+    assert.equal(row.payments, -row.payable);
+    assert.equal(row.previousDues + row.payments + row.paymentCoupon + row.credits + row.currentCharges, row.payable);
+  }
+});
+
+test("zero-value summary rows keep numeric zero payments without negative zero", () => {
+  const invoice = createWifiInvoice({ ...createReferenceWifiBill("2026-09"), rentalAmount: "0" });
+  for (const row of [invoice.statementRow, ...invoice.historyRows]) {
+    assert.equal(row.previousDues, 0);
+    assert.equal(row.payments, 0);
+    assert.equal(row.payable, 0);
+    assert.equal(Object.is(row.payments, -0), false);
+  }
 });

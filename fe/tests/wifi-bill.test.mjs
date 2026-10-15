@@ -270,7 +270,7 @@ test("the visible August PDF prefills every source-backed displayed field", () =
   assert.equal(data.hsnServiceDescription, "Fixed Telephony Service");
   assert.match(data.tariffAirtelMobile, /\|\s+\|/);
   const storedHistory = [
-    { previous: "999", payment: "-999", current: "1178.82" },
+    { previous: "1178.82", payment: "-1178.82", current: "1178.82" },
     { previous: "", payment: "", current: "" },
     { previous: "", payment: "", current: "" },
   ];

@@ -78,6 +78,7 @@ function BillQr({ src, paymentLink, amount, upiId, detailed = false, statement =
         <Image
           src={src}
           alt="UPI payment QR code containing this bill's invoice and tax metadata"
+          data-pdf-qr={paymentLink}
           width={144}
           height={144}
           unoptimized
@@ -272,8 +273,8 @@ export function WifiBillDocument({ invoice, onPageRef, paymentQrUrl, paymentLink
 
         <div className={styles.balanceStrip}>
           {[
-            { label: "Last bill amount", value: formatMoney(totals.previousBalance) },
-            { label: "Payment made", value: formatDebit(totals.paymentReceived) },
+            { label: "Last bill amount", value: <OptionalMoney paise={statementRow.previousDues} /> },
+            { label: "Payment made", value: <OptionalMoney paise={statementRow.payments} debit /> },
             { label: "Payment coupon", value: formatDebit(totals.paymentCoupon) },
             { label: "Credits", value: formatDebit(totals.credits) },
             { label: WIFI_BILL_LABELS.currentCharges, value: formatMoney(totals.totalCurrentCharges) },
@@ -294,8 +295,8 @@ export function WifiBillDocument({ invoice, onPageRef, paymentQrUrl, paymentLink
                 <tr><th>Revised charges</th><td className={styles.center}>-</td><td className={styles.money}>-</td><td className={styles.money}>-</td><td className={styles.money}>-</td></tr>
                 <tr><th>Taxes (GST)</th><td className={styles.center}>-</td><td className={styles.money}>-</td><td className={styles.money}>{formatMoney(totals.gstTotal)}</td><td className={styles.money}>{formatMoney(totals.gstTotal)}</td></tr>
                 <tr className={styles.rule}><th colSpan={4}>{WIFI_BILL_LABELS.currentCharges}</th><td className={styles.money}>{formatMoney(totals.totalCurrentCharges)}</td></tr>
-                <tr><th colSpan={4}>Last bill amount</th><td className={styles.money}>{formatMoney(totals.previousBalance)}</td></tr>
-                <tr><th colSpan={4}>Last payment made</th><td className={styles.money}>{formatDebit(totals.paymentReceived)}</td></tr>
+                <tr><th colSpan={4}>Last bill amount</th><td className={styles.money}><OptionalMoney paise={statementRow.previousDues} /></td></tr>
+                <tr><th colSpan={4}>Last payment made</th><td className={styles.money}><OptionalMoney paise={statementRow.payments} debit /></td></tr>
                 <TotalRow grand><th colSpan={4}>{WIFI_BILL_LABELS.amountPayable}</th><td className={styles.money}>{formatMoney(totals.totalPayable)}</td></TotalRow>
               </tbody>
             </BillTable>
@@ -492,7 +493,7 @@ export function WifiBillDocument({ invoice, onPageRef, paymentQrUrl, paymentLink
             <colgroup><col style={{ width: "55%" }} /><col style={{ width: "18%" }} /><col style={{ width: "14%" }} /><col style={{ width: "13%" }} /></colgroup>
             <thead><tr><th>Description</th><th>Date</th><th className={styles.money}>Amount</th><th className={styles.money}>Total (₹)</th></tr></thead>
             <tbody>
-              <tr><td>{totals.paymentReceived !== 0 ? data.paymentMethod || "Payment received" : "No payment recorded"}</td><td>{data.paymentDate ? formatBillDate(data.paymentDate) : "-"}</td><td className={styles.money}><DebitAmount amount={totals.paymentReceived} /></td><td className={styles.money}><DebitAmount amount={totals.paymentReceived} /></td></tr>
+              <tr><td>{totals.paymentReceived !== 0 ? data.paymentMethod || "Payment received" : "No payment recorded"}</td><td>{data.paymentDate ? formatBillDate(data.paymentDate) : "-"}</td><td className={styles.money}><DebitAmount amount={totals.totalPayable} /></td><td className={styles.money}><DebitAmount amount={totals.totalPayable} /></td></tr>
             </tbody>
           </BillTable>
         </section>
