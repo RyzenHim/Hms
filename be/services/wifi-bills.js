@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { randomBytes } = require("node:crypto");
 const WifiCustomer = require("../models/WifiCustomer");
 const WifiBill = require("../models/WifiBill");
 const {
@@ -6,6 +7,7 @@ const {
   dataToStorage,
   dataFromStorage,
   customerFromData,
+  customerFromStorage,
 } = require("./wifi-bill-data");
 
 const requestError = (message, statusCode, errors) =>
@@ -31,21 +33,17 @@ const requireBody = (body, allowedKeys) => {
 
 const plain = (document) => document?.toObject ? document.toObject() : document;
 const isoDate = (value) => value instanceof Date ? value.toISOString() : value;
+const validBillMonth = (value) => /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+
+const defaultInvoiceNumberFactory = (billMonth) =>
+  `HMS${billMonth.replace("-", "")}I${randomBytes(5).toString("hex").toUpperCase()}`;
 
 const customerResponse = (document) => {
   const customer = plain(document);
+  const canonical = customerFromStorage(customer);
   return {
     id: String(customer._id),
-    name: customer.name,
-    address: customer.address,
-    email: customer.email,
-    phone: customer.phone,
-    gstin: customer.gstin,
-    state: customer.state,
-    stateCode: customer.stateCode,
-    accountNumber: customer.accountNumber,
-    wifiId: customer.wifiId,
-    fixedlineNumber: customer.fixedlineNumber,
+    ...canonical,
     createdAt: isoDate(customer.createdAt),
     updatedAt: isoDate(customer.updatedAt),
   };
@@ -63,10 +61,25 @@ const billResponse = (document) => {
   };
 };
 
+const monthConflict = (billMonth) => requestError(
+  `A stored bill already exists for ${billMonth}. Open that monthly record instead of creating another one.`,
+  409,
+  { billMonth: "Each billing account can have only one stored bill for a month." },
+);
+
+const sortMonthlyDocuments = (documents) => [...documents].sort((left, right) => {
+  const leftMonth = String(plain(left)?.data?.billMonth || "");
+  const rightMonth = String(plain(right)?.data?.billMonth || "");
+  const byMonth = rightMonth.localeCompare(leftMonth);
+  if (byMonth) return byMonth;
+  return String(isoDate(plain(right)?.updatedAt) || "").localeCompare(String(isoDate(plain(left)?.updatedAt) || ""));
+});
+
 const createWifiBillService = ({
   Customer = WifiCustomer,
   Bill = WifiBill,
   connection = mongoose.connection,
+  invoiceNumberFactory = defaultInvoiceNumberFactory,
 } = {}) => {
   const requireDatabase = () => {
     // Do not let Mongoose queue a save that appears to hang when disconnected.
@@ -89,6 +102,47 @@ const createWifiBillService = ({
         updatedAt: isoDate(customer.updatedAt),
       })),
     };
+  };
+
+  const assignInvoiceNumber = (data) => {
+    if (!data.billMonth.trim() || data.invoiceNumber.trim()) return data;
+    const invoiceNumber = invoiceNumberFactory(data.billMonth);
+    return validateDraftData({ ...data, invoiceNumber });
+  };
+
+  // Legacy drafts may already have a month but no invoice identifier. Fill that
+  // value with an atomic blank-only update so concurrent reads keep one number.
+  const ensureStoredInvoiceNumber = async (document) => {
+    const stored = plain(document);
+    const data = dataFromStorage(stored.data);
+    if (!data.billMonth || data.invoiceNumber) return stored;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const invoiceNumber = invoiceNumberFactory(data.billMonth);
+      validateDraftData({ ...data, invoiceNumber });
+      try {
+        const updated = await Bill.findOneAndUpdate(
+          {
+            _id: stored._id,
+            $or: [
+              { "data.invoiceNumber": "" },
+              { "data.invoiceNumber": null },
+              { "data.invoiceNumber": { $exists: false } },
+            ],
+          },
+          { $set: { "data.invoiceNumber": invoiceNumber }, $inc: { version: 1 } },
+          { new: true, runValidators: true },
+        );
+        if (updated) return plain(updated);
+        const winner = await Bill.findById(stored._id).lean();
+        if (winner?.data?.invoiceNumber) return winner;
+      } catch (error) {
+        // A generated number collision is safe to retry. Other persistence
+        // failures retain their original status and error details.
+        if (error.code !== 11000) throw error;
+      }
+    }
+    throw requestError("Unable to reserve a unique invoice number. Please retry saving this bill.", 409);
   };
 
   const getCustomer = async (id) => {
@@ -118,9 +172,43 @@ const createWifiBillService = ({
   const getBill = async (id) => {
     requireId(id);
     requireDatabase();
-    const bill = await Bill.findById(id).lean();
+    let bill = await Bill.findById(id).lean();
     if (!bill) throw requestError("Bill draft not found.", 404);
+    bill = await ensureStoredInvoiceNumber(bill);
     return { bill: billResponse(bill) };
+  };
+
+  const getBillingContext = async (customerId, billMonth) => {
+    requireId(customerId, "customerId");
+    if (typeof billMonth !== "string" || !validBillMonth(billMonth)) {
+      throw requestError("A valid billing month is required.", 400, { billMonth: "Use YYYY-MM." });
+    }
+    requireDatabase();
+    const [customer, storedBills] = await Promise.all([
+      Customer.findById(customerId).lean(),
+      Bill.find({ customer: customerId, "data.billMonth": { $ne: "", $lte: billMonth } }).lean(),
+    ]);
+    if (!customer) throw requestError("Customer not found.", 404);
+
+    // Keep one authoritative record for each month if legacy data predates the
+    // unique month index. The most recently updated snapshot wins.
+    const monthlyDocuments = [];
+    const seenMonths = new Set();
+    for (const storedBill of sortMonthlyDocuments(storedBills)) {
+      const month = String(storedBill.data?.billMonth || "");
+      if (!validBillMonth(month) || month > billMonth || seenMonths.has(month)) continue;
+      seenMonths.add(month);
+      monthlyDocuments.push(await ensureStoredInvoiceNumber(storedBill));
+    }
+    const monthlyRecords = monthlyDocuments.map(billResponse);
+    const selectedBill = monthlyRecords.find((bill) => bill.data.billMonth === billMonth) || null;
+    const previousBill = monthlyRecords.find((bill) => bill.data.billMonth < billMonth) || null;
+    return {
+      customer: customerResponse(customer),
+      selectedBill,
+      previousBill,
+      monthlyRecords,
+    };
   };
 
   const createBill = async (body) => {
@@ -129,7 +217,7 @@ const createWifiBillService = ({
       throw requestError("A client draft ID is required for safe save retries.", 400, { clientDraftId: "Use one UUID for this new draft and reuse it when retrying." });
     }
     const clientDraftId = body.clientDraftId.toLowerCase();
-    const data = validateDraftData(body.data);
+    const data = assignInvoiceNumber(validateDraftData(body.data));
     const customerId = body.customerId === undefined ? null : requireId(body.customerId, "customerId");
     requireDatabase();
     // Wait for the idempotency index before accepting the first save. Mongoose
@@ -145,6 +233,13 @@ const createWifiBillService = ({
           const customer = await Customer.findById(existing.customer).session(session);
           if (!customer) throw requestError("The customer linked to this bill no longer exists.", 409);
           return { bill: billResponse(existing), customer: customerResponse(customer) };
+        }
+        if (customerId && data.billMonth) {
+          const existingMonth = await Bill.findOne({
+            customer: customerId,
+            "data.billMonth": data.billMonth,
+          }).session(session);
+          if (existingMonth) throw monthConflict(data.billMonth);
         }
         let customer;
         if (customerId) {
@@ -166,7 +261,18 @@ const createWifiBillService = ({
       // lookup. Its winning snapshot is authoritative; do not apply retry edits.
       if (error.code !== 11000) throw error;
       const existing = await Bill.findOne({ clientDraftId }).lean();
-      if (!existing) throw error;
+      if (!existing) {
+        if (customerId && data.billMonth) {
+          const existingMonth = await Bill.findOne({
+            customer: customerId,
+            "data.billMonth": data.billMonth,
+          }).lean();
+          if (existingMonth) throw monthConflict(data.billMonth);
+        }
+        throw requestError("That invoice number is already assigned to another stored bill.", 409, {
+          invoiceNumber: "Use the invoice number stored for this month, or leave it blank to generate one.",
+        });
+      }
       const customer = await Customer.findById(existing.customer).lean();
       if (!customer) throw requestError("The customer linked to this bill no longer exists.", 409);
       return { bill: billResponse(existing), customer: customerResponse(customer) };
@@ -176,13 +282,43 @@ const createWifiBillService = ({
   const updateBill = async (id, body) => {
     requireId(id);
     requireBody(body, ["data", "version"]);
-    const data = validateDraftData(body.data);
+    let data = validateDraftData(body.data);
     if (!Number.isSafeInteger(body.version) || body.version < 0) {
       throw requestError("The saved bill version is required.", 400, { version: "Use the version returned when loading or saving this bill." });
     }
     requireDatabase();
 
     return connection.transaction(async (session) => {
+      const existing = await Bill.findById(id).session(session);
+      if (!existing) throw requestError("Bill draft not found.", 404);
+      if (existing.version !== body.version) {
+        throw requestError("This draft was changed in another session. Reload the saved bill before saving again; your current edits have not been overwritten.", 409);
+      }
+      const existingData = dataFromStorage(existing.data);
+      if (existingData.billMonth && data.billMonth !== existingData.billMonth) {
+        throw requestError("The billing month cannot change after this monthly record is saved.", 400, {
+          billMonth: "Create or open the record for the other month.",
+        });
+      }
+      if (existingData.invoiceNumber && data.invoiceNumber && data.invoiceNumber !== existingData.invoiceNumber) {
+        throw requestError("The invoice number cannot change after it is stored.", 400, {
+          invoiceNumber: "Use the invoice number already assigned to this month.",
+        });
+      }
+      data = validateDraftData({
+        ...data,
+        invoiceNumber: existingData.invoiceNumber || data.invoiceNumber,
+      });
+      data = assignInvoiceNumber(data);
+      if (!existingData.billMonth && data.billMonth) {
+        const existingMonth = await Bill.findOne({
+          customer: existing.customer,
+          "data.billMonth": data.billMonth,
+        }).session(session);
+        if (existingMonth && String(existingMonth._id) !== String(existing._id)) {
+          throw monthConflict(data.billMonth);
+        }
+      }
       // The version comparison and increment are one atomic database operation.
       // An older browser tab cannot overwrite another tab's saved changes.
       const previous = await Bill.findOneAndUpdate(
@@ -212,7 +348,7 @@ const createWifiBillService = ({
     });
   };
 
-  return { listCustomers, getCustomer, getBill, createBill, updateBill };
+  return { listCustomers, getCustomer, getBill, getBillingContext, createBill, updateBill };
 };
 
-module.exports = { createWifiBillService };
+module.exports = { createWifiBillService, defaultInvoiceNumberFactory };

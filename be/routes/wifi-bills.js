@@ -21,6 +21,8 @@ const createWifiBillRouter = (service = createWifiBillService()) => {
   };
 
   router.get("/customers", handle(() => service.listCustomers()));
+  router.get("/customers/:id/billing-context/:billMonth", handle((req) =>
+    service.getBillingContext(req.params.id, req.params.billMonth)));
   router.get("/customers/:id", handle((req) => service.getCustomer(req.params.id)));
   router.get("/bills/:id", handle((req) => service.getBill(req.params.id)));
   router.post("/bills", handle((req) => service.createBill(req.body), 201));

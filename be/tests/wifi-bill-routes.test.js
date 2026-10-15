@@ -22,12 +22,20 @@ test("draft routes preserve request arguments and the documented success envelop
     updateBill: async (id, body) => { assert.equal(id, "draft"); assert.equal(body.version, 0); return { ...saved, bill: { ...saved.bill, version: 1 } }; },
     listCustomers: async () => ({ customers: [saved.customer] }),
     getCustomer: async (id) => { assert.equal(id, "customer"); return { customer: saved.customer, bills: [saved.bill] }; },
+    getBillingContext: async (id, billMonth) => {
+      assert.equal(id, "customer");
+      assert.equal(billMonth, "2026-08");
+      return { customer: saved.customer, selectedBill: saved.bill, previousBill: null, monthlyRecords: [saved.bill] };
+    },
     getBill: async (id) => { assert.equal(id, "draft"); return { bill: saved.bill }; },
   });
   assert.deepEqual(await request(router, "POST", "/bills", payload), { status: 201, body: saved });
   assert.equal((await request(router, "PUT", "/bills/draft", { data: payload.data, version: 0 })).body.bill.version, 1);
   assert.deepEqual((await request(router, "GET", "/customers")).body, { customers: [saved.customer] });
   assert.deepEqual((await request(router, "GET", "/customers/customer")).body, { customer: saved.customer, bills: [saved.bill] });
+  assert.deepEqual((await request(router, "GET", "/customers/customer/billing-context/2026-08")).body, {
+    customer: saved.customer, selectedBill: saved.bill, previousBill: null, monthlyRecords: [saved.bill],
+  });
   assert.deepEqual((await request(router, "GET", "/bills/draft")).body, { bill: saved.bill });
 });
 

@@ -3,6 +3,12 @@ const mongoose = require("mongoose");
 // Keep the API shape and printable text limits in sync with fe/src/types/wifi-bill.ts
 // and fe/src/lib/wifi-bill.ts. Saving a draft does not require an issuable invoice.
 const WIFI_BILL_MAX_AMOUNT = 9_999_999.99;
+const WIFI_SERVICE_CONFIGURATION = Object.freeze({
+  hsnSacCode: "998412",
+  description: "Fixed telephony services",
+});
+const DEFAULT_HSN_SAC_CODE = WIFI_SERVICE_CONFIGURATION.hsnSacCode;
+const DEFAULT_HSN_SERVICE_DESCRIPTION = WIFI_SERVICE_CONFIGURATION.description;
 const WIFI_BILL_TEXT_LIMITS = Object.freeze({
   providerName: 70,
   providerAddress: 240,
@@ -30,9 +36,11 @@ const WIFI_BILL_TEXT_LIMITS = Object.freeze({
   addressChangeInformation: 300,
   otherInformation: 900,
   fupInformation: 350,
-  hsnServiceInformation: 700,
+  hsnServiceDescription: 160,
   customerName: 80,
-  customerAddress: 240,
+  customerAddressLine1: 180,
+  customerCity: 60,
+  customerPostalCode: 10,
   customerEmail: 100,
   customerPhone: 20,
   customerGstin: 15,
@@ -40,13 +48,12 @@ const WIFI_BILL_TEXT_LIMITS = Object.freeze({
   customerStateCode: 2,
   accountNumber: 40,
   invoiceNumber: 35,
-  billingBarcodeValue: 80,
   wifiId: 60,
   fixedlineNumber: 25,
-  planName: 80,
+  planDisplayName: 80,
   speed: 30,
   quota: 40,
-  hsnCode: 12,
+  hsnSacCode: 6,
   paymentMethod: 100,
   tariffAirtelFixedline: 160,
   tariffOtherFixedline: 160,
@@ -58,7 +65,6 @@ const WIFI_BILL_TEXT_LIMITS = Object.freeze({
 });
 const WIFI_BILL_LINE_LIMITS = Object.freeze({
   providerAddress: 5,
-  customerAddress: 5,
   paymentInstructions: 4,
   registeredOffice: 4,
   corporateOffice: 4,
@@ -69,16 +75,23 @@ const WIFI_BILL_LINE_LIMITS = Object.freeze({
   addressChangeInformation: 4,
   otherInformation: 8,
   fupInformation: 4,
-  hsnServiceInformation: 8,
   notes: 8,
 });
 const WIFI_BILL_AMOUNT_FIELDS = Object.freeze([
   "rentalAmount", "discount", "otherCharges", "gstRate",
-  "previousBalance", "paymentReceived", "paymentCoupon", "credits",
+  "previousBalance", "paymentReceived", "paymentCoupon", "credits", "statementCurrentCharges",
   "creditLimit", "securityDeposit", "lateFee",
   "history1PreviousDues", "history1Payments", "history1PaymentCoupon", "history1Credits", "history1CurrentCharges",
   "history2PreviousDues", "history2Payments", "history2PaymentCoupon", "history2Credits", "history2CurrentCharges",
   "history3PreviousDues", "history3Payments", "history3PaymentCoupon", "history3Credits", "history3CurrentCharges",
+]);
+// The statement formula adds payments, coupons and credits to previous dues.
+// Persist those adjustments with their accounting sign (normally negative).
+const WIFI_BILL_SIGNED_AMOUNT_FIELDS = Object.freeze([
+  "paymentReceived", "paymentCoupon", "credits",
+  "history1Payments", "history1PaymentCoupon", "history1Credits",
+  "history2Payments", "history2PaymentCoupon", "history2Credits",
+  "history3Payments", "history3PaymentCoupon", "history3Credits",
 ]);
 const WIFI_BILL_DATE_FIELDS = Object.freeze([
   "billDate", "dueDate", "periodStart", "periodEnd", "paymentDate",
@@ -96,12 +109,12 @@ const WIFI_BILL_FIELDS = Object.freeze([
   "providerCin", "providerServiceCategory", "registeredOffice", "corporateOffice",
   "contactInformation", "appellateInformation", "corporateCoordinatorInformation",
   "chargesInformation", "addressChangeInformation", "otherInformation", "fupInformation",
-  "hsnServiceInformation", "customerName",
-  "customerAddress", "customerEmail", "customerPhone", "customerGstin", "customerState",
-  "customerStateCode", "accountNumber", "invoiceNumber", "billingBarcodeValue", "wifiId", "fixedlineNumber",
-  "billMonth", "monthMode", "billDate", "dueDate", "periodStart", "periodEnd", "planName",
-  "speed", "quota", "connections", "hsnCode", "rentalAmount", "discount", "otherCharges",
-  "gstRate", "taxMode", "amountMode", "previousBalance", "paymentReceived", "paymentDate",
+  "hsnServiceDescription", "customerName", "customerAddressLine1", "customerCity",
+  "customerPostalCode", "customerEmail", "customerPhone", "customerGstin", "customerState",
+  "customerStateCode", "accountNumber", "invoiceNumber", "wifiId", "fixedlineNumber",
+  "billMonth", "monthMode", "billDate", "dueDate", "periodStart", "periodEnd", "planDisplayName",
+  "speed", "quota", "connections", "hsnSacCode", "rentalAmount", "discount", "otherCharges",
+  "gstRate", "taxMode", "amountMode", "previousBalance", "paymentReceived", "statementCurrentCharges", "paymentDate",
   "paymentCoupon", "history1PreviousDues", "history1Payments", "history1PaymentCoupon",
   "history1Credits", "history1CurrentCharges", "history2PreviousDues", "history2Payments",
   "history2PaymentCoupon", "history2Credits", "history2CurrentCharges", "history3PreviousDues",
@@ -129,7 +142,8 @@ const WIFI_BILL_DEFAULTS = Object.freeze({
   addressChangeInformation: "Visit the nearest Airtel Store with new address proof. Store details: www.airtel.in/store.",
   otherInformation: "Tariff plan: no increase in any line item (except ISD) for the first 6 months from enrolment, subject to terms. No fee is charged for migrating to any plan. After permanent disconnection, the security deposit is refunded within 60 days; otherwise interest is paid at 10% p.a. Calls may be rounded off. Billing disagreements must be reported within 2 months of bill receipt; after that no claim will be entertained. Reverse charge basis: NO. The Airtel Wi-Fi router is Airtel property and may be reclaimed when service ends.",
   fupInformation: "Post consumption of the unlimited quota, speed is revised to 2 Mbps as per the Fair Usage Policy. For information on other plans, visit www.airtel.in/business/thanksforbusiness/login/.",
-  hsnServiceInformation: "998412 Fixed Telephony Service; 998433 Online video content; 996812 Courier Services; 997317 Leasing or rental services concerning telecommunications equipment with or without operator; 9983 Support services; 998716 Maintenance and repair services of telecommunication equipment and apparatus; 999799 Other Services n.e.c.",
+  hsnSacCode: DEFAULT_HSN_SAC_CODE,
+  hsnServiceDescription: DEFAULT_HSN_SERVICE_DESCRIPTION,
   tariffAirtelFixedline: "0.00/60 | 0/60 | 0/60 | See www.airtel.in",
   tariffOtherFixedline: "0.00/60 | 0/60 | 0/60 | See www.airtel.in",
   tariffAirtelMobile: "0.00/60 | 0/60 | 0/60 | See www.airtel.in",
@@ -139,7 +153,9 @@ const WIFI_BILL_DEFAULTS = Object.freeze({
 });
 const CUSTOMER_FIELD_MAP = Object.freeze({
   name: "customerName",
-  address: "customerAddress",
+  addressLine1: "customerAddressLine1",
+  city: "customerCity",
+  postalCode: "customerPostalCode",
   email: "customerEmail",
   phone: "customerPhone",
   gstin: "customerGstin",
@@ -148,8 +164,10 @@ const CUSTOMER_FIELD_MAP = Object.freeze({
   accountNumber: "accountNumber",
   wifiId: "wifiId",
   fixedlineNumber: "fixedlineNumber",
+  paymentUpiId: "paymentUpiId",
 });
-const DECIMAL_PATTERN = /^\d+(?:\.\d{1,2})?$/;
+const UNSIGNED_DECIMAL_PATTERN = /^\d+(?:\.\d{1,2})?$/;
+const SIGNED_DECIMAL_PATTERN = /^-?\d+(?:\.\d{1,2})?$/;
 const NUMERIC_TEXT_LIMIT = 32;
 
 function validDate(value) {
@@ -163,8 +181,13 @@ function validMonth(value) {
 }
 
 function validDecimal(value, field) {
-  if (value.length > NUMERIC_TEXT_LIMIT || !DECIMAL_PATTERN.test(value)) return false;
-  const [whole, fraction = ""] = value.split(".");
+  const pattern = WIFI_BILL_SIGNED_AMOUNT_FIELDS.includes(field)
+    ? SIGNED_DECIMAL_PATTERN
+    : UNSIGNED_DECIMAL_PATTERN;
+  if (value.length > NUMERIC_TEXT_LIMIT || !pattern.test(value)) return false;
+  if (WIFI_BILL_SIGNED_AMOUNT_FIELDS.includes(field) && Number(value) > 0) return false;
+  const unsigned = value.startsWith("-") ? value.slice(1) : value;
+  const [whole, fraction = ""] = unsigned.split(".");
   const hundredths = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0"));
   return hundredths <= (field === "gstRate" ? 10_000n : 999_999_999n);
 }
@@ -196,7 +219,9 @@ function fieldError(field, value) {
   if (WIFI_BILL_AMOUNT_FIELDS.includes(field) && value.trim() && !validDecimal(value.trim(), field)) {
     return field === "gstRate"
       ? "Enter a GST rate from 0 to 100 with at most 2 decimals."
-      : `Enter a non-negative amount up to ${WIFI_BILL_MAX_AMOUNT} with at most 2 decimals.`;
+      : WIFI_BILL_SIGNED_AMOUNT_FIELDS.includes(field)
+        ? `Enter a signed zero or negative amount up to ${WIFI_BILL_MAX_AMOUNT} with at most 2 decimals.`
+        : `Enter a non-negative amount up to ${WIFI_BILL_MAX_AMOUNT} with at most 2 decimals.`;
   }
   if (field === "connections" && value.trim() && (
     value.length > NUMERIC_TEXT_LIMIT || !/^\d+$/.test(value.trim()) ||
@@ -208,7 +233,16 @@ function fieldError(field, value) {
   if (field === "billMonth" && value && !validMonth(value)) {
     return "Use a valid billing month in YYYY-MM format, from 1900 onward.";
   }
-  if (["accountNumber", "invoiceNumber", "billingBarcodeValue"].includes(field) && value.trim() && !/^[\x20-\x7E]+$/.test(value)) {
+  if (field === "customerPostalCode" && value.trim() && !/^\d{6}$/.test(value.trim())) {
+    return "Enter a 6-digit postal code.";
+  }
+  if (field === "customerStateCode" && value.trim() && !/^\d{2}$/.test(value.trim())) {
+    return "Enter a 2-digit state code.";
+  }
+  if (field === "hsnSacCode" && value.trim() && !/^\d{6}$/.test(value.trim())) {
+    return "Enter a 6-digit HSN / SAC code.";
+  }
+  if (["accountNumber", "invoiceNumber"].includes(field) && value.trim() && !/^[\x20-\x7E]+$/.test(value)) {
     return "Use printable English letters, numbers or symbols so the barcode can be generated.";
   }
   if (field === "issuerSignatureUrl" && value.trim() && !validCloudinaryImageUrl(value.trim())) {
@@ -275,12 +309,59 @@ function dataToStorage(input) {
   return data;
 }
 
-/** Return only the full public form shape, with no subdocument/internal fields. */
+function legacyCustomerAddress(source) {
+  const legacy = typeof source.customerAddress === "string" ? source.customerAddress : "";
+  if (!legacy.trim()) return {};
+
+  const parts = legacy
+    .split(/[\r\n,]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const state = typeof source.customerState === "string" ? source.customerState.trim() : "";
+  const postalCode = parts.find((part) => /^\d{6}$/.test(part)) || "";
+  let city = "";
+  if (state) {
+    for (let index = parts.length - 1; index > 0; index -= 1) {
+      if (parts[index].localeCompare(state, undefined, { sensitivity: "accent" }) === 0) {
+        const candidate = parts[index - 1];
+        if (candidate && !/^\d{6}$/.test(candidate)) {
+          city = candidate;
+          break;
+        }
+      }
+    }
+  }
+  const repeatedLocation = new Set([city, state, postalCode].filter(Boolean).map((value) => value.toLocaleLowerCase("en-IN")));
+  const streetParts = parts.filter((part) => !repeatedLocation.has(part.toLocaleLowerCase("en-IN")));
+  return {
+    customerAddressLine1: streetParts.join(", ") || parts[0],
+    ...(city ? { customerCity: city } : {}),
+    ...(postalCode ? { customerPostalCode: postalCode } : {}),
+  };
+}
+
+/** Return only the canonical public form shape, migrating legacy snapshots on read. */
 function dataFromStorage(input) {
   const source = typeof input?.toObject === "function" ? input.toObject() : (input || {});
   const data = { ...WIFI_BILL_DEFAULTS };
   for (const field of WIFI_BILL_FIELDS) {
     if (source[field] != null) data[field] = String(source[field]);
+  }
+  const migratedAddress = legacyCustomerAddress(source);
+  for (const [field, value] of Object.entries(migratedAddress)) {
+    if (source[field] == null || String(source[field]).trim() === "") data[field] = value;
+  }
+  if ((!data.planDisplayName.trim() || source.planDisplayName == null) && source.planName != null) {
+    data.planDisplayName = String(source.planName);
+  }
+  const hasLegacyServiceClassification = source.hsnCode != null || source.hsnServiceInformation != null;
+  if (source.hsnCode != null && (source.hsnSacCode == null || String(source.hsnSacCode) === DEFAULT_HSN_SAC_CODE)) {
+    data.hsnSacCode = String(source.hsnCode);
+  }
+  if (source.hsnServiceDescription == null || hasLegacyServiceClassification) {
+    data.hsnServiceDescription = data.hsnSacCode === DEFAULT_HSN_SAC_CODE
+      ? DEFAULT_HSN_SERVICE_DESCRIPTION
+      : "";
   }
   return data;
 }
@@ -290,6 +371,24 @@ function customerFromData(input) {
   return Object.fromEntries(Object.entries(CUSTOMER_FIELD_MAP).map(
     ([field, dataField]) => [field, data[dataField]],
   ));
+}
+
+/** Canonicalize customer master records created before structured addresses. */
+function customerFromStorage(input) {
+  const source = typeof input?.toObject === "function" ? input.toObject() : (input || {});
+  const customer = Object.fromEntries(Object.keys(CUSTOMER_FIELD_MAP).map(
+    (field) => [field, source[field] == null ? "" : String(source[field])],
+  ));
+  if (!customer.addressLine1 && typeof source.address === "string") {
+    const migratedAddress = legacyCustomerAddress({
+      customerAddress: source.address,
+      customerState: customer.state,
+    });
+    customer.addressLine1 = migratedAddress.customerAddressLine1 || "";
+    customer.city ||= migratedAddress.customerCity || "";
+    customer.postalCode ||= migratedAddress.customerPostalCode || "";
+  }
+  return customer;
 }
 
 /** Typed snapshots prevent MongoDB casting from turning unfinished amounts into 0. */
@@ -329,9 +428,13 @@ function createWifiBillDataSchema() {
 
 module.exports = {
   WIFI_BILL_MAX_AMOUNT,
+  WIFI_SERVICE_CONFIGURATION,
+  DEFAULT_HSN_SAC_CODE,
+  DEFAULT_HSN_SERVICE_DESCRIPTION,
   WIFI_BILL_TEXT_LIMITS,
   WIFI_BILL_LINE_LIMITS,
   WIFI_BILL_AMOUNT_FIELDS,
+  WIFI_BILL_SIGNED_AMOUNT_FIELDS,
   WIFI_BILL_DATE_FIELDS,
   WIFI_BILL_ENUMS,
   WIFI_BILL_FIELDS,
@@ -341,5 +444,6 @@ module.exports = {
   dataToStorage,
   dataFromStorage,
   customerFromData,
+  customerFromStorage,
   createWifiBillDataSchema,
 };

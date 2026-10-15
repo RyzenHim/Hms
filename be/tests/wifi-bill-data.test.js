@@ -1,6 +1,4 @@
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
 const test = require("node:test");
 const mongoose = require("mongoose");
 const WifiCustomer = require("../models/WifiCustomer");
@@ -8,12 +6,17 @@ const WifiBill = require("../models/WifiBill");
 const {
   WIFI_BILL_FIELDS,
   WIFI_BILL_AMOUNT_FIELDS,
+  WIFI_BILL_SIGNED_AMOUNT_FIELDS,
   WIFI_BILL_TEXT_LIMITS,
   WIFI_BILL_LINE_LIMITS,
+  WIFI_SERVICE_CONFIGURATION,
+  DEFAULT_HSN_SAC_CODE,
+  DEFAULT_HSN_SERVICE_DESCRIPTION,
   validateDraftData,
   dataToStorage,
   dataFromStorage,
   customerFromData,
+  customerFromStorage,
 } = require("../services/wifi-bill-data");
 
 function expectInvalid(input, field) {
@@ -25,11 +28,18 @@ function expectInvalid(input, field) {
   });
 }
 
-test("drafts include every frontend field and preserve unfinished optional values", () => {
-  const typeSource = fs.readFileSync(path.join(__dirname, "../../fe/src/types/wifi-bill.ts"), "utf8");
-  const formInterface = typeSource.split("export interface WifiBillData {")[1].split("\n}")[0];
-  const frontendFields = [...formInterface.matchAll(/^  (\w+):/gm)].map((match) => match[1]);
-  assert.deepEqual([...WIFI_BILL_FIELDS].sort(), frontendFields.sort());
+test("drafts expose only canonical bill fields and preserve unfinished optional values", () => {
+  assert.deepEqual(WIFI_SERVICE_CONFIGURATION, {
+    hsnSacCode: "998412",
+    description: "Fixed telephony services",
+  });
+  for (const field of [
+    "customerAddressLine1", "customerCity", "customerPostalCode", "planDisplayName",
+    "hsnSacCode", "hsnServiceDescription",
+  ]) assert.ok(WIFI_BILL_FIELDS.includes(field));
+  for (const field of [
+    "customerAddress", "planName", "hsnCode", "hsnServiceInformation", "billingBarcodeValue",
+  ]) assert.equal(WIFI_BILL_FIELDS.includes(field), false);
   const draft = validateDraftData({ customerName: "  Sam  ", customerEmail: "sam@", paymentUpiId: "incomplete@", customerPhone: "+" });
   assert.equal(draft.customerName, "Sam");
   assert.equal(draft.customerEmail, "sam@");
@@ -42,6 +52,8 @@ test("drafts include every frontend field and preserve unfinished optional value
   assert.equal(draft.connections, "");
   assert.equal(draft.billMonth, "");
   assert.equal(draft.billDate, "");
+  assert.equal(draft.hsnSacCode, DEFAULT_HSN_SAC_CODE);
+  assert.equal(draft.hsnServiceDescription, DEFAULT_HSN_SERVICE_DESCRIPTION);
   expectInvalid({}, "customerName");
   expectInvalid({ customerName: " \t " }, "customerName");
 });
@@ -54,6 +66,9 @@ test("draft validation rejects unknown fields and incorrect types without Mongo 
     }
   }
   expectInvalid({ customerName: "Sam", customerId: "client-controlled" }, "customerId");
+  for (const legacyField of ["customerAddress", "planName", "hsnCode", "hsnServiceInformation", "billingBarcodeValue"]) {
+    expectInvalid({ customerName: "Sam", [legacyField]: "legacy" }, legacyField);
+  }
   expectInvalid(JSON.parse('{"customerName":"Sam","__proto__":{"admin":true}}'), "__proto__");
   for (const field of ["monthMode", "taxMode", "amountMode"]) {
     expectInvalid({ customerName: "Sam", [field]: "" }, field);
@@ -63,7 +78,10 @@ test("draft validation rejects unknown fields and incorrect types without Mongo 
 
 test("all printable text and explicit line breaks stay within frontend limits", () => {
   for (const [field, limit] of Object.entries(WIFI_BILL_TEXT_LIMITS)) {
-    if (["issuerSignatureUrl", "issuerSignaturePublicId"].includes(field)) continue;
+    if ([
+      "issuerSignatureUrl", "issuerSignaturePublicId", "customerPostalCode",
+      "customerStateCode", "hsnSacCode",
+    ].includes(field)) continue;
     assert.equal(validateDraftData({ customerName: "Sam", [field]: "x".repeat(limit) })[field].length, limit);
     expectInvalid({ customerName: "Sam", [field]: "x".repeat(limit + 1) }, field);
   }
@@ -74,10 +92,39 @@ test("all printable text and explicit line breaks stay within frontend limits", 
   for (const field of WIFI_BILL_FIELDS.filter((field) => !WIFI_BILL_LINE_LIMITS[field])) {
     expectInvalid({ customerName: "Sam", [field]: "a\nb" }, field);
   }
-  assert.equal(validateDraftData({ customerName: "Sam", accountNumber: "20025842515", invoiceNumber: "HF2708I003089481", billingBarcodeValue: "20025842515 404694138" }).billingBarcodeValue, "20025842515 404694138");
+  const identifiers = validateDraftData({ customerName: "Sam", accountNumber: "20025842515", invoiceNumber: "HF2708I003089481" });
+  assert.equal(identifiers.accountNumber, "20025842515");
+  assert.equal(identifiers.invoiceNumber, "HF2708I003089481");
   expectInvalid({ customerName: "Sam", accountNumber: "खाता-1" }, "accountNumber");
   expectInvalid({ customerName: "Sam", invoiceNumber: "INV\t01" }, "invoiceNumber");
-  expectInvalid({ customerName: "Sam", billingBarcodeValue: "खाता-1" }, "billingBarcodeValue");
+});
+
+test("structured address codes and HSN/SAC use canonical numeric formats", () => {
+  const canonical = validateDraftData({
+    customerName: "Sam",
+    customerAddressLine1: "Raj Manthan Rd, Sms Colony, Mansarovar",
+    customerCity: "Jaipur",
+    customerPostalCode: "302020",
+    customerStateCode: "08",
+    hsnSacCode: "998422",
+  });
+  assert.equal(canonical.customerPostalCode, "302020");
+  assert.equal(canonical.customerStateCode, "08");
+  assert.equal(canonical.hsnSacCode, "998422");
+  assert.equal(WIFI_BILL_TEXT_LIMITS.customerAddressLine1, 180);
+  assert.equal(WIFI_BILL_TEXT_LIMITS.customerCity, 60);
+  assert.equal(WIFI_BILL_TEXT_LIMITS.customerPostalCode, 10);
+  assert.equal(WIFI_BILL_TEXT_LIMITS.hsnSacCode, 6);
+
+  for (const value of ["30202", "3020200", "302O20", "30-2020"]) {
+    expectInvalid({ customerName: "Sam", customerPostalCode: value }, "customerPostalCode");
+  }
+  for (const value of ["8", "008", "0A", "0-8"]) {
+    expectInvalid({ customerName: "Sam", customerStateCode: value }, "customerStateCode");
+  }
+  for (const value of ["99842", "9984220", "998A22", "998-22"]) {
+    expectInvalid({ customerName: "Sam", hsnSacCode: value }, "hsnSacCode");
+  }
 });
 
 test("custom signature references must be a complete managed Cloudinary pair", () => {
@@ -92,11 +139,17 @@ test("custom signature references must be a complete managed Cloudinary pair", (
   expectInvalid({ customerName: "Sam", issuerSignatureUrl, issuerSignaturePublicId: "foreign_asset" }, "issuerSignaturePublicId");
 });
 
-test("amounts reject malformed, negative, excessive precision and out of range values", () => {
+test("amounts reject malformed, excessive precision and out of range values while accounting adjustments stay signed", () => {
   for (const field of WIFI_BILL_AMOUNT_FIELDS) {
-    for (const value of ["NaN", "Infinity", "1e2", "0x12", "-1", "+1", "1,000", ".5", "1.", "1.005", "9".repeat(1000), " ".repeat(1000)]) {
+    for (const value of ["NaN", "Infinity", "1e2", "0x12", "+1", "1,000", ".5", "1.", "1.005", "9".repeat(1000), " ".repeat(1000)]) {
       expectInvalid({ customerName: "Sam", [field]: value }, field);
     }
+    if (!WIFI_BILL_SIGNED_AMOUNT_FIELDS.includes(field)) {
+      expectInvalid({ customerName: "Sam", [field]: "-1" }, field);
+    }
+  }
+  for (const field of WIFI_BILL_SIGNED_AMOUNT_FIELDS) {
+    assert.equal(validateDraftData({ customerName: "Sam", [field]: "-451.19" })[field], "-451.19");
   }
   expectInvalid({ customerName: "Sam", rentalAmount: "10000000" }, "rentalAmount");
   expectInvalid({ customerName: "Sam", gstRate: "100.01" }, "gstRate");
@@ -122,14 +175,14 @@ test("calendar validation rejects rollover dates and invalid months and accepts 
 });
 
 test("storage round trips exact decimal amounts and blank fields without inserting zero", () => {
-  const draft = validateDraftData({ customerName: "Sam", rentalAmount: "9999999.99", discount: "0.10", paymentCoupon: "25.50", history1PreviousDues: "1178.82", history1Payments: "1178.82", creditLimit: "2500", securityDeposit: "0", gstRate: "18.25", connections: "7", notes: "First line\nSecond line" });
+  const draft = validateDraftData({ customerName: "Sam", rentalAmount: "9999999.99", discount: "0.10", paymentCoupon: "-25.50", history1PreviousDues: "1178.82", history1Payments: "-1178.82", creditLimit: "2500", securityDeposit: "0", gstRate: "18.25", connections: "7", notes: "First line\nSecond line" });
   const stored = dataToStorage(draft);
   assert.ok(stored.rentalAmount instanceof mongoose.Types.Decimal128);
   assert.equal(stored.rentalAmount.toString(), "9999999.99");
   assert.equal(stored.discount.toString(), "0.10");
-  assert.equal(stored.paymentCoupon.toString(), "25.50");
+  assert.equal(stored.paymentCoupon.toString(), "-25.50");
   assert.equal(stored.history1PreviousDues.toString(), "1178.82");
-  assert.equal(stored.history1Payments.toString(), "1178.82");
+  assert.equal(stored.history1Payments.toString(), "-1178.82");
   assert.equal(stored.creditLimit.toString(), "2500");
   assert.equal(stored.securityDeposit.toString(), "0");
   assert.equal(stored.gstRate.toString(), "18.25");
@@ -143,11 +196,43 @@ test("storage round trips exact decimal amounts and blank fields without inserti
   assert.equal(dataFromStorage(emptyStored).rentalAmount, "");
   assert.equal(dataFromStorage(emptyStored).connections, "");
   assert.equal(dataFromStorage({ ...stored, _id: "internal" })._id, undefined);
+  for (const legacyField of ["customerAddress", "planName", "hsnCode", "hsnServiceInformation", "billingBarcodeValue"]) {
+    assert.equal(Object.hasOwn(stored, legacyField), false);
+  }
+});
+
+test("legacy snapshots are normalized on read while new writes remain canonical", () => {
+  const legacyBill = WifiBill.hydrate({
+    _id: "000000000000000000000001",
+    customer: "000000000000000000000002",
+    data: {
+      customerName: "Legacy customer",
+      customerAddress: "Raj Manthan Rd, Sms Colony, Mansarovar, Jaipur, Rajasthan\nJaipur, Rajasthan, 302020,",
+      customerState: "Rajasthan",
+      planName: "999 WiFi_100_Mbps",
+      hsnCode: "998422",
+      hsnServiceInformation: "998412 Fixed Telephony Service",
+      billingBarcodeValue: "legacy barcode payload",
+    },
+  });
+  const migrated = dataFromStorage(legacyBill.data);
+  assert.equal(migrated.customerAddressLine1, "Raj Manthan Rd, Sms Colony, Mansarovar");
+  assert.equal(migrated.customerCity, "Jaipur");
+  assert.equal(migrated.customerPostalCode, "302020");
+  assert.equal(migrated.planDisplayName, "999 WiFi_100_Mbps");
+  assert.equal(migrated.hsnSacCode, "998422");
+  assert.equal(migrated.hsnServiceDescription, "");
+  for (const legacyField of ["customerAddress", "planName", "hsnCode", "hsnServiceInformation", "billingBarcodeValue"]) {
+    assert.equal(Object.hasOwn(migrated, legacyField), false);
+  }
 });
 
 test("customer extraction is explicit and keeps contact details independent from invoice data", () => {
-  assert.deepEqual(customerFromData({ customerName: "Sam", customerAddress: "A\nB", customerEmail: "s@", accountNumber: "A001", rentalAmount: "100" }), {
-    name: "Sam", address: "A\nB", email: "s@", phone: "", gstin: "", state: "", stateCode: "", accountNumber: "A001", wifiId: "", fixedlineNumber: "",
+  assert.deepEqual(customerFromData({ customerName: "Sam", customerAddressLine1: "A", customerCity: "B", customerPostalCode: "302020", customerEmail: "s@", accountNumber: "A001", rentalAmount: "100" }), {
+    name: "Sam", addressLine1: "A", city: "B", postalCode: "302020", email: "s@", phone: "", gstin: "", state: "", stateCode: "", accountNumber: "A001", wifiId: "", fixedlineNumber: "", paymentUpiId: "",
+  });
+  assert.deepEqual(customerFromStorage({ name: "Legacy", address: "Street, Jaipur, Rajasthan, 302020", state: "Rajasthan" }), {
+    name: "Legacy", addressLine1: "Street", city: "Jaipur", postalCode: "302020", email: "", phone: "", gstin: "", state: "Rajasthan", stateCode: "", accountNumber: "", wifiId: "", fixedlineNumber: "", paymentUpiId: "",
   });
 });
 
@@ -159,6 +244,8 @@ test("schemas use stable customer IDs, nonunique names, typed snapshots, and ver
   await secondCustomer.validate();
   assert.equal(WifiCustomer.schema.path("name").options.index, true);
   assert.notEqual(WifiCustomer.schema.path("name").options.unique, true);
+  for (const field of ["addressLine1", "city", "postalCode"]) assert.equal(WifiCustomer.schema.path(field).instance, "String");
+  assert.equal(WifiCustomer.schema.path("address"), undefined);
   assert.equal(WifiCustomer.schema.options.timestamps, true);
   assert.equal(WifiCustomer.schema.options.bufferCommands, false);
   assert.equal(WifiCustomer.schema.virtualpath("bills").options.ref, "WifiBill");
@@ -177,6 +264,10 @@ test("schemas use stable customer IDs, nonunique names, typed snapshots, and ver
   assert.notEqual(WifiBill.schema.path("clientDraftId").options.required, true);
   assert.ok(WifiBill.schema.indexes().some(([keys, options]) => keys.clientDraftId === 1 && options.unique && options.sparse));
   assert.ok(WifiBill.schema.indexes().some(([keys]) => keys.customer === 1 && keys.updatedAt === -1));
+  assert.ok(WifiBill.schema.indexes().some(([keys, options]) =>
+    keys.customer === 1 && keys["data.billMonth"] === 1 && options.unique && options.partialFilterExpression));
+  assert.ok(WifiBill.schema.indexes().some(([keys, options]) =>
+    keys["data.invoiceNumber"] === 1 && options.unique && options.partialFilterExpression));
   const snapshot = WifiBill.schema.path("data").schema;
   assert.deepEqual(Object.keys(snapshot.paths).sort(), [...WIFI_BILL_FIELDS].sort());
   for (const field of WIFI_BILL_FIELDS) {

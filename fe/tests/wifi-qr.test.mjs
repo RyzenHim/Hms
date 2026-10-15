@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import QRCode from "qrcode";
-import { createDefaultWifiBill, createReferenceWifiBill, calculateWifiBill } from "../src/lib/wifi-bill.ts";
+import { createDefaultWifiBill, createReferenceWifiBill } from "../src/lib/wifi-bill.ts";
+import { createWifiInvoice } from "../src/lib/wifi-invoice.ts";
+import { decodeQrModuleMatrix } from "../src/lib/wifi-export-validation.ts";
 import {
   buildWifiPaymentQrPayload,
   deriveAirtelPaymentUpiId,
   getWifiPaymentQrIssue,
   isDerivedAirtelPaymentUpiId,
   isValidUpiId,
+  parseWifiPaymentQrPayload,
   syncWifiPaymentUpiId,
   withDerivedAirtelPaymentUpiId,
 } from "../src/lib/wifi-qr.ts";
@@ -17,26 +20,18 @@ function bill(overrides = {}) {
     ...createDefaultWifiBill(new Date(2026, 8, 25)),
     paymentUpiId: "test.account@bank",
     paymentPayeeName: "Example Broadband & Services",
+    accountNumber: "ACCOUNT-2026-09",
     invoiceNumber: "INV-2026-09",
     providerGstin: "08ABCDE1234F1Z5",
-    hsnCode: "998422",
+    hsnSacCode: "998412",
     ...overrides,
   };
 }
 
 function qr(data) {
-  const payload = buildWifiPaymentQrPayload(data, calculateWifiBill(data));
-  const parameters = new URL(payload).searchParams;
-  const [organization, ...entries] = parameters.get("orgId").split(",");
-  return {
-    payload,
-    parameters,
-    organization,
-    metadata: Object.fromEntries(entries.map((entry) => {
-      const delimiter = entry.indexOf("=");
-      return [entry.slice(0, delimiter), decodeURIComponent(entry.slice(delimiter + 1))];
-    })),
-  };
+  const invoice = createWifiInvoice(data);
+  const payload = buildWifiPaymentQrPayload(invoice);
+  return { payload, invoice, ...parseWifiPaymentQrPayload(payload) };
 }
 
 test("payment QR preserves all reference metadata keys and uses current bill values", () => {
@@ -57,9 +52,11 @@ test("payment QR preserves all reference metadata keys and uses current bill val
   assert.equal(organization, "000000");
   assert.deepEqual(metadata, {
     InvNo: "INV-2026-09",
-    InvoiceBilldate: "06-Sep-26",
+    AccountNo: "ACCOUNT-2026-09",
+    PaymentReference: "INV-2026-09",
+    InvoiceBilldate: "06 Sep 2026",
     ItemCount: "1",
-    "HSN/SACCode": "998422",
+    "HSN/SACCode": "998412",
     SellerGST: "08ABCDE1234F1Z5",
     "Payee Bank AcctNo": "",
     IFSC_CODE: "",
@@ -70,7 +67,7 @@ test("payment QR preserves all reference metadata keys and uses current bill val
     CESS: "0.00",
     TotalInvAmt: "1178.82",
   });
-  for (const staleValue of ["20025842515", "HF2708I003089481", "06-Aug-26", "470.82", "71.82", "998412"]) {
+  for (const staleValue of ["20025842515", "HF2708I003089481", "06-Aug-26", "470.82", "71.82", "998422"]) {
     assert.ok(!payload.includes(staleValue), `${staleValue} must not leak from the reference`);
   }
 });
@@ -82,8 +79,10 @@ test("the untouched visible-PDF prefill generates its coherent payable QR", () =
   assert.equal(parameters.get("tr"), "HF2708I003089481");
   assert.equal(parameters.get("am"), "1178.82");
   assert.equal(parameters.get("mam"), "1178.82");
-  assert.equal(metadata.InvoiceBilldate, "06-Aug-26");
-  assert.equal(metadata["HSN/SACCode"], "998422");
+  assert.equal(metadata.AccountNo, "20025842515");
+  assert.equal(metadata.PaymentReference, "HF2708I003089481");
+  assert.equal(metadata.InvoiceBilldate, "06 Aug 2026");
+  assert.equal(metadata["HSN/SACCode"], "998412");
   assert.equal(metadata.Tot_GST, "179.82");
   assert.equal(metadata.CGST, "89.91");
   assert.equal(metadata.SGST, "89.91");
@@ -126,32 +125,32 @@ test("Airtel payment UPI ID follows the account until the user overrides it", ()
 
 test("QR readiness explains the first missing or invalid payment detail", () => {
   const missingAccount = bill({ accountNumber: "", paymentUpiId: "" });
-  assert.match(getWifiPaymentQrIssue(missingAccount, calculateWifiBill(missingAccount)), /Airtel account number/);
+  assert.match(getWifiPaymentQrIssue(createWifiInvoice(missingAccount)), /Airtel account number/);
 
   const invalidUpi = bill({ paymentUpiId: "not a upi id" });
-  assert.match(getWifiPaymentQrIssue(invalidUpi, calculateWifiBill(invalidUpi)), /valid payment UPI ID/);
+  assert.match(getWifiPaymentQrIssue(createWifiInvoice(invalidUpi)), /valid payment UPI ID/);
 
-  const noBalance = bill({ paymentReceived: "1200" });
-  assert.match(getWifiPaymentQrIssue(noBalance, calculateWifiBill(noBalance)), /greater than zero/);
-  assert.equal(getWifiPaymentQrIssue(bill(), calculateWifiBill(bill())), "");
+  const noBalance = bill({ rentalAmount: "0" });
+  assert.match(getWifiPaymentQrIssue(createWifiInvoice(noBalance)), /greater than zero/);
+  assert.equal(getWifiPaymentQrIssue(createWifiInvoice(bill())), "");
 });
 
 test("invoice metadata and payment amount stay consistent with adjustments and IGST", () => {
   const { parameters, metadata } = qr(bill({
     rentalAmount: "1000", discount: "100", otherCharges: "50", taxMode: "igst",
-    previousBalance: "200", paymentReceived: "100", credits: "20",
+    previousBalance: "200", paymentReceived: "-100", credits: "-20",
     invoiceNumber: "CUSTOM-02", billDate: "2024-02-06",
   }));
   assert.equal(parameters.get("tr"), "CUSTOM-02");
-  assert.equal(parameters.get("am"), "1201.00");
-  assert.equal(parameters.get("mam"), "1201.00");
+  assert.equal(parameters.get("am"), "1101.00");
+  assert.equal(parameters.get("mam"), "1101.00");
   assert.equal(metadata.TotalInvAmt, "1121.00");
   assert.equal(metadata.Tot_GST, "171.00");
   assert.equal(metadata.CGST, "0.00");
   assert.equal(metadata.SGST, "0.00");
   assert.equal(metadata.IGST, "171.00");
   assert.equal(metadata.ItemCount, "2");
-  assert.equal(metadata.InvoiceBilldate, "06-Feb-24");
+  assert.equal(metadata.InvoiceBilldate, "06 Feb 2024");
 });
 
 test("payment QR is absent for invalid inputs or a zero payable balance", () => {
@@ -161,10 +160,10 @@ test("payment QR is absent for invalid inputs or a zero payable balance", () => 
     { paymentMerchantCode: "" }, { paymentMerchantCode: "481" },
     { paymentTransactionNote: "" }, { paymentTransactionNote: "line one\nline two" },
     { invoiceNumber: "" }, { invoiceNumber: "x".repeat(36) },
-    { billDate: "2025-02-29" }, { paymentReceived: "1200" },
+    { billDate: "2025-02-29" }, { rentalAmount: "0" },
   ]) {
     const data = bill(overrides);
-    assert.equal(buildWifiPaymentQrPayload(data, calculateWifiBill(data)), "");
+    assert.equal(buildWifiPaymentQrPayload(createWifiInvoice(data)), "");
   }
   assert.equal(isValidUpiId("sample.FL@mairtel"), true);
   assert.equal(isValidUpiId("a".repeat(100) + "@bank"), false);
@@ -180,10 +179,11 @@ test("invoice separators cannot inject duplicate QR metadata or payment query pa
   assert.equal(metadata.TotalInvAmt, "1178.82");
 });
 
-test("complete metadata fits a real QR with four-module quiet zone", async () => {
+test("complete metadata survives a real QR encode/decode round trip", async () => {
   const { payload } = qr(bill());
   const svg = await QRCode.toString(payload, { type: "svg", errorCorrectionLevel: "M", margin: 4 });
   assert.match(svg, /<svg/);
   const code = QRCode.create(payload, { errorCorrectionLevel: "M" });
   assert.ok(code.modules.size <= 101, "Payment QR should remain readable at the document's printed size");
+  assert.equal(decodeQrModuleMatrix(code.modules), payload);
 });

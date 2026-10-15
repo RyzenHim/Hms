@@ -61,6 +61,8 @@ export interface WifiBillData {
   previousBalance: string;
   paymentReceived: string;
   paymentCoupon: string;
+  /** Persisted finalized current charge for this monthly record. */
+  statementCurrentCharges: string;
   history1PreviousDues: string;
   history1Payments: string;
   history1PaymentCoupon: string;
@@ -100,6 +102,7 @@ export interface WifiBillTotals {
   rentalBeforeTax: number;
   discountBeforeTax: number;
   otherChargesBeforeTax: number;
+  grossChargesBeforeTax: number;
   taxableAmount: number;
   cgstRate: number;
   sgstRate: number;
@@ -137,7 +140,18 @@ export interface WifiCompanyProfile {
   corporateOffice: string;
   supportPhone: string;
   supportEmail: string;
+  assets: Readonly<{
+    logoUrl: string;
+    detailLogoUrl: string;
+    paymentLogoUrl: string;
+    signatureUrl: string;
+    pageTwoBannerUrl: string;
+    paymentAppName: string;
+    paymentPortalUrl: string;
+  }>;
 }
+
+export type WifiCompanyAssets = WifiCompanyProfile["assets"];
 
 export interface WifiInvoiceIdentifiers {
   invoiceNumber: string;
@@ -150,6 +164,29 @@ export interface WifiInvoiceIdentifiers {
   periodStart: string;
   periodEnd: string;
   paymentReference: string;
+}
+
+/**
+ * A finalized monthly ledger row loaded from storage. Adjustment values are
+ * signed: payments, coupons and credits are zero or negative.
+ */
+export interface WifiStoredMonthlyRecord {
+  readonly accountNumber: string;
+  readonly billMonth: string;
+  readonly invoiceNumber: string;
+  readonly previousDues: number;
+  readonly payments: number;
+  readonly paymentCoupon: number;
+  readonly credits: number;
+  readonly currentCharges: number;
+  /** Settlement of this invoice, used by the immediately following statement. */
+  readonly settlement: Readonly<{
+    payments: number;
+    paymentCoupon: number;
+    credits: number;
+    paymentDate: string;
+    paymentMethod: string;
+  }> | null;
 }
 
 export interface WifiInvoice {
@@ -185,6 +222,24 @@ export interface WifiInvoice {
   }>;
   calculations: Readonly<WifiBillTotals>;
   barcodeValue: string;
+  /** Finalized selected-month ledger row used by every statement renderer. */
+  statementRow: Readonly<{
+    previousDues: number | null;
+    payments: number | null;
+    paymentCoupon: number | null;
+    credits: number | null;
+    currentCharges: number | null;
+    payable: number | null;
+  }>;
+  historyRows: readonly Readonly<{
+    offset: 1 | 2 | 3;
+    previousDues: number | null;
+    payments: number | null;
+    paymentCoupon: number | null;
+    credits: number | null;
+    currentCharges: number | null;
+    payable: number | null;
+  }>[];
 }
 
 export type WifiBillErrors = Partial<Record<keyof WifiBillData, string>>;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createDefaultWifiBill } from "../src/lib/wifi-bill.ts";
-import { getWifiSavedBill, saveWifiDraft, WifiApiError, wifiBillFingerprint, wifiCustomerFields } from "../src/lib/wifi-api.ts";
+import { getWifiBillingContext, getWifiSavedBill, saveWifiDraft, WifiApiError, wifiBillFingerprint, wifiCustomerFields } from "../src/lib/wifi-api.ts";
 
 test("new draft saves incomplete details with a stable retry identifier and customer reference", async (context) => {
   const calls = [];
@@ -41,6 +41,17 @@ test("loading a bill returns its stored month unchanged", async (context) => {
   assert.deepEqual(await getWifiSavedBill("bill1"), { bill });
 });
 
+test("billing context loads the selected and immediately previous stored records", async (context) => {
+  const response = { customer: { id: "customer1", paymentUpiId: "account@bank" }, selectedBill: { id: "aug" }, previousBill: { id: "jul" }, monthlyRecords: [{ id: "aug" }, { id: "jul" }] };
+  let requestedUrl = "";
+  context.mock.method(globalThis, "fetch", async (url) => {
+    requestedUrl = String(url);
+    return new Response(JSON.stringify(response));
+  });
+  assert.deepEqual(await getWifiBillingContext("customer 1", "2026-08"), response);
+  assert.match(requestedUrl, /\/customers\/customer%201\/billing-context\/2026-08$/);
+});
+
 test("saved fingerprints normalize decimal storage but preserve meaningful unsaved edits", () => {
   const data = createDefaultWifiBill();
   assert.equal(wifiBillFingerprint(data), wifiBillFingerprint({
@@ -56,9 +67,11 @@ test("saved fingerprints normalize decimal storage but preserve meaningful unsav
   assert.notEqual(wifiBillFingerprint(data), wifiBillFingerprint({ ...data, notes: "Edited during save" }));
 });
 
-test("new customer bills copy profile fields without inheriting old invoice dates or totals", () => {
-  const fields = wifiCustomerFields({ name: "Example", address: "Address", email: "", phone: "9000000000", gstin: "", state: "Rajasthan", stateCode: "08", accountNumber: "A1", wifiId: "W1", fixedlineNumber: "" });
+test("new customer bills copy one account profile without inheriting old invoice dates or totals", () => {
+  const fields = wifiCustomerFields({ name: "Example", addressLine1: "Address", city: "Jaipur", postalCode: "302020", email: "", phone: "9000000000", gstin: "", state: "Rajasthan", stateCode: "08", accountNumber: "A1", wifiId: "W1", fixedlineNumber: "", paymentUpiId: "a1@bank" });
   assert.equal(fields.customerName, "Example");
+  assert.equal(fields.customerCity, "Jaipur");
   assert.equal(fields.accountNumber, "A1");
+  assert.equal(fields.paymentUpiId, "a1@bank");
   for (const field of ["billMonth", "invoiceNumber", "paymentReceived", "rentalAmount"]) assert.ok(!(field in fields));
 });

@@ -9,12 +9,12 @@ export interface WifiOperator {
   signaturePublicId: string | null;
 }
 
-// Exact artwork extracted from the supplied reference PDF. These same-origin
-// copies keep PDF export reliable when the optional cloud copy is unavailable.
-export const REFERENCE_AIRTEL_LOGO_URL = "/wifi/airtel-logo.png";
+// The supplied SVG wordmark and reference-PDF artwork are bundled locally so
+// preview and PDF export also work when the optional cloud copy is unavailable.
+export const REFERENCE_AIRTEL_LOGO_URL = "/wifi/airtel-logo.svg";
 export const REFERENCE_AIRTEL_PAYMENT_LOGO_URL = "/wifi/airtel-payments-bank-logo.png";
 export const REFERENCE_AIRTEL_SIGNATURE_URL = "/wifi/airtel-signature.png";
-export const REFERENCE_AIRTEL_DETAIL_LOGO_URL = "/wifi/airtel-page-four-logo.jpg";
+export const REFERENCE_AIRTEL_DETAIL_LOGO_URL = REFERENCE_AIRTEL_LOGO_URL;
 export const REFERENCE_AIRTEL_PAGE_TWO_BANNER_URL = "/wifi/airtel-page-two-banner.jpg";
 
 const apiBaseUrl = () =>
@@ -24,7 +24,7 @@ export function usesReferenceOperator(providerName: string): boolean {
   return /^(?:(?:bharti\s+)?airtel|bharti\s+hexacom)(?:\s+(?:limited|ltd\.?))?$/i.test(providerName.trim());
 }
 
-/** Only the extracted operator artwork is uploaded; bill/customer data stays local. */
+/** Only bundled operator artwork is uploaded; bill/customer data stays local. */
 export async function loadWifiOperator(): Promise<WifiOperator> {
   const request = async (method: "GET" | "POST") => {
     const response = await fetch(`${apiBaseUrl()}/api/wifi/operator${method === "POST" ? "/logo" : ""}`, {

@@ -1,20 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 import QRCode from "qrcode";
 import { Download, Eye, FileText, LoaderCircle, Plus, Save, Wifi } from "lucide-react";
 import { AppSidebar } from "../AppSidebar";
 import { PdfPreviewModal } from "../PdfPreviewModal";
-import { buildOptimizedPdf } from "../../lib/pdf-export";
+import { PdfExportDialog } from "../PdfExportDialog";
 import {
+  applyPlanBasedLastPayment,
   calculateWifiBill,
   createDefaultWifiBill,
   createReferenceWifiBill,
   formatMoney,
+  getBillingDates,
   resolveWifiBillDates,
   validateWifiBill,
+  WIFI_INTERNET_SERVICE,
+  REFERENCE_ACCOUNT_NUMBER,
 } from "../../lib/wifi-bill";
+import { createWifiInvoice } from "../../lib/wifi-invoice";
+import { encodeCode128B } from "../../lib/code128";
+import { assertWifiInvoiceReadyForExport, decodeQrModuleMatrix } from "../../lib/wifi-export-validation";
+import { type PdfPageToRender } from "../../lib/pdf-export";
+import { serializeVectorWifiBillPdf } from "../../lib/wifi-vector-pdf";
 import {
   buildWifiPaymentQrPayload,
   deriveAirtelPaymentUpiId,
@@ -26,35 +35,42 @@ import {
 import {
   loadCloudImageDataUrl,
   loadWifiOperator,
+  REFERENCE_AIRTEL_DETAIL_LOGO_URL,
   REFERENCE_AIRTEL_LOGO_URL,
   REFERENCE_AIRTEL_PAYMENT_LOGO_URL,
+  REFERENCE_AIRTEL_PAGE_TWO_BANNER_URL,
   REFERENCE_AIRTEL_SIGNATURE_URL,
   usesReferenceOperator,
 } from "../../lib/wifi-operator";
-import { getWifiSavedBill, saveWifiDraft, uploadWifiSignature, WifiApiError, wifiBillFingerprint, wifiCustomerFields, type WifiCustomer } from "../../lib/wifi-api";
+import { getWifiBillingContext, getWifiSavedBill, saveWifiDraft, uploadWifiSignature, WifiApiError, wifiBillFingerprint, wifiCustomerFields, type WifiBillingContext, type WifiCustomer, type WifiSavedBill } from "../../lib/wifi-api";
 import type { WifiBillData } from "../../types/wifi-bill";
+import type { WifiInvoice } from "../../types/wifi-bill";
 import { WifiBillDocument } from "./WifiBillDocument";
 import { WifiBillForm } from "./WifiBillForm";
 import { WifiBillLibrary } from "./WifiBillLibrary";
 
-const pageLabels = ["Monthly Statement", "Payments and Refunds", "Tax Invoice", "Charges in Detail"];
-
-async function createPaymentQr(data: WifiBillData) {
-  const totals = calculateWifiBill(data);
-  const issue = getWifiPaymentQrIssue(data, totals);
-  const paymentLink = issue ? "" : buildWifiPaymentQrPayload(data, totals);
+async function createPaymentQr(invoice: WifiInvoice) {
+  const issue = getWifiPaymentQrIssue(invoice);
+  const paymentLink = issue ? "" : buildWifiPaymentQrPayload(invoice);
+  const qr = paymentLink ? QRCode.create(paymentLink, { errorCorrectionLevel: "M" }) : null;
   return {
     issue,
     paymentLink,
+    decodedQrPayload: qr ? decodeQrModuleMatrix(qr.modules) : "",
     qrUrl: paymentLink
       ? await QRCode.toDataURL(paymentLink, { errorCorrectionLevel: "M", margin: 4, width: 768 })
       : "",
   };
 }
 
-function billFileName(data: WifiBillData) {
-  const customer = data.customerName.trim().replace(/[^\p{L}\p{N}_-]+/gu, "_").slice(0, 70);
-  return `WiFi_Bill_${data.billMonth}_${customer || "Customer"}.pdf`;
+async function embeddedImage(url: string): Promise<string> {
+  if (!url || url.startsWith("data:")) return url;
+  return loadCloudImageDataUrl(url);
+}
+
+function billFileName(invoice: WifiInvoice) {
+  const customer = invoice.customer.name.replace(/[^\p{L}\p{N}_-]+/gu, "_").slice(0, 70);
+  return `WiFi_Bill_${invoice.identifiers.billMonth}_${customer || "Customer"}.pdf`;
 }
 
 function fileAsDataUrl(file: File): Promise<string> {
@@ -66,21 +82,143 @@ function fileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+function clearedOlderHistory(): Partial<WifiBillData> {
+  return {
+    history1PreviousDues: "",
+    history1Payments: "",
+    history1PaymentCoupon: "",
+    history1Credits: "",
+    history1CurrentCharges: "",
+    history2PreviousDues: "",
+    history2Payments: "",
+    history2PaymentCoupon: "",
+    history2Credits: "",
+    history2CurrentCharges: "",
+    history3PreviousDues: "",
+    history3Payments: "",
+    history3PaymentCoupon: "",
+    history3Credits: "",
+    history3CurrentCharges: "",
+  };
+}
+
+function inputAmount(value: number): string {
+  return value.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+}
+
+function prepareCanonicalBill(data: WifiBillData): WifiBillData {
+  const canonical = applyPlanBasedLastPayment(withDerivedAirtelPaymentUpiId({
+    ...data,
+    hsnSacCode: WIFI_INTERNET_SERVICE.hsnSacCode,
+    hsnServiceDescription: WIFI_INTERNET_SERVICE.description,
+  }));
+  return {
+    ...canonical,
+    statementCurrentCharges: inputAmount(calculateWifiBill(canonical).totalCurrentCharges),
+  };
+}
+
+function priorMonthHistory(bill: WifiSavedBill | null): Partial<WifiBillData> {
+  if (!bill) return clearedOlderHistory();
+  return {
+    ...clearedOlderHistory(),
+    // The previous bill establishes that the row exists. Its financial values
+    // are rebuilt from the current plan and GST by prepareCanonicalBill, so no
+    // stored financial value leaks into the displayed row.
+    history1PreviousDues: "0",
+    history1Payments: "0",
+    history1PaymentCoupon: "0",
+    history1Credits: "0",
+    history1CurrentCharges: "0",
+  };
+}
+
+function billFromContext(current: WifiBillData, context: WifiBillingContext, billMonth: string): WifiBillData {
+  if (context.selectedBill) {
+    return prepareCanonicalBill({
+      ...createDefaultWifiBill(),
+      ...context.selectedBill.data,
+      ...wifiCustomerFields(context.customer),
+      monthMode: current.monthMode,
+      ...getBillingDates(billMonth),
+      ...priorMonthHistory(context.previousBill),
+    });
+  }
+
+  const previous = context.previousBill?.data;
+  return prepareCanonicalBill({
+    ...current,
+    ...wifiCustomerFields(context.customer),
+    ...getBillingDates(billMonth),
+    invoiceNumber: "",
+    statementCurrentCharges: "",
+    paymentDate: previous?.dueDate || "",
+    paymentMethod: previous?.paymentMethod || "Payment received",
+    ...priorMonthHistory(context.previousBill),
+  });
+}
+
 function createNewWifiBill(customer?: WifiCustomer, now: Date = new Date()): WifiBillData {
   const reference = createReferenceWifiBill();
   if (!customer) return reference;
   const customerBill = resolveWifiBillDates({
     ...reference,
+    ...clearedOlderHistory(),
     ...wifiCustomerFields(customer),
-    billingBarcodeValue: "",
     monthMode: "current",
+    invoiceNumber: "",
+    statementCurrentCharges: "",
+    paymentDate: "",
+    paymentMethod: "",
   }, now);
-  return { ...customerBill, paymentUpiId: syncWifiPaymentUpiId(customerBill, false) };
+  return prepareCanonicalBill({ ...customerBill, paymentUpiId: syncWifiPaymentUpiId(customerBill, false) });
+}
+
+function applyReferenceMonthContext(data: WifiBillData): WifiBillData {
+  if (data.accountNumber.trim() !== REFERENCE_ACCOUNT_NUMBER) return data;
+  try {
+    const stored = createReferenceWifiBill(data.billMonth);
+    return {
+      ...data,
+      invoiceNumber: stored.invoiceNumber,
+      paymentDate: stored.paymentDate,
+      paymentMethod: stored.paymentMethod,
+      statementCurrentCharges: stored.statementCurrentCharges,
+      history1PreviousDues: stored.history1PreviousDues,
+      history1Payments: stored.history1Payments,
+      history1PaymentCoupon: stored.history1PaymentCoupon,
+      history1Credits: stored.history1Credits,
+      history1CurrentCharges: stored.history1CurrentCharges,
+      history2PreviousDues: stored.history2PreviousDues,
+      history2Payments: stored.history2Payments,
+      history2PaymentCoupon: stored.history2PaymentCoupon,
+      history2Credits: stored.history2Credits,
+      history2CurrentCharges: stored.history2CurrentCharges,
+      history3PreviousDues: stored.history3PreviousDues,
+      history3Payments: stored.history3Payments,
+      history3PaymentCoupon: stored.history3PaymentCoupon,
+      history3Credits: stored.history3Credits,
+      history3CurrentCharges: stored.history3CurrentCharges,
+    };
+  } catch {
+    return {
+      ...data,
+      invoiceNumber: "",
+      paymentDate: "",
+      paymentMethod: "",
+      statementCurrentCharges: "",
+      ...clearedOlderHistory(),
+    };
+  }
 }
 
 const subscribeToClient = () => () => {};
 
 /** Read the device clock only after hydration, never the static build's date. */
+function serializeWifiPdfBlob(pdf: import("jspdf").jsPDF): Blob {
+  return new Blob([new Uint8Array(serializeVectorWifiBillPdf(pdf))], { type: "application/pdf" });
+}
+
 export function WifiBillWorkspace() {
   const isClient = useSyncExternalStore(subscribeToClient, () => true, () => false);
   return isClient ? <WifiBillEditor /> : <div role="status" className="flex min-h-dvh items-center justify-center bg-slate-900 text-sm text-slate-300">Loading WiFi bill workspace...</div>;
@@ -92,6 +230,8 @@ function WifiBillEditor() {
   const [errors, setErrors] = useState<Partial<Record<keyof WifiBillData, string>>>({});
   const [exportError, setExportError] = useState("");
   const [operation, setOperation] = useState<"preview" | "download" | null>(null);
+  const [exportRequest, setExportRequest] = useState<{ pages: PdfPageToRender[]; fileName: string; mode: "preview" | "download" } | null>(null);
+  const getExportPages = useCallback(() => exportRequest?.pages ?? [], [exportRequest]);
   const [preview, setPreview] = useState<{ url: string; fileName: string } | null>(null);
   const [logoDataUrl, setLogoDataUrl] = useState(REFERENCE_AIRTEL_LOGO_URL);
   const [paymentLogoDataUrl, setPaymentLogoDataUrl] = useState(REFERENCE_AIRTEL_PAYMENT_LOGO_URL);
@@ -119,8 +259,8 @@ function WifiBillEditor() {
   const logoPromise = useRef<Promise<{ logoUrl: string; paymentLogoUrl: string; signatureUrl: string }> | null>(null);
   const pagesRef = useRef<(HTMLDivElement | null)[]>([]);
   const exportInProgress = useRef(false);
+  const billingContextRequest = useRef(0);
   const mounted = useRef(true);
-  const totals = calculateWifiBill(data);
   const referenceOperator = usesReferenceOperator(data.providerName);
   const hasUnsavedChanges = wifiBillFingerprint(data) !== savedSnapshot;
   const signatureSource = data.issuerSignatureUrl.trim();
@@ -134,6 +274,17 @@ function WifiBillEditor() {
     signatureSource &&
     signatureAssetState?.source !== signatureSource,
   );
+  const companyPresentation = useMemo(() => ({
+    logoUrl: referenceOperator ? logoDataUrl : "",
+    detailLogoUrl: referenceOperator ? REFERENCE_AIRTEL_DETAIL_LOGO_URL : "",
+    paymentLogoUrl: referenceOperator ? paymentLogoDataUrl : "",
+    signatureUrl: signatureSource || referenceOperator ? signatureDataUrl : "",
+    pageTwoBannerUrl: referenceOperator ? REFERENCE_AIRTEL_PAGE_TWO_BANNER_URL : "",
+    paymentAppName: referenceOperator ? "Airtel Thanks App" : "",
+    paymentPortalUrl: referenceOperator ? "https://www.airtel.in/pay" : "",
+  }), [logoDataUrl, paymentLogoDataUrl, referenceOperator, signatureDataUrl, signatureSource]);
+  const createdBill = useMemo(() => createWifiInvoice(data, companyPresentation), [companyPresentation, data]);
+  const totals = createdBill.calculations;
   const busy = !!operation || saving || loadingBill || signatureUploading || signatureLoading;
 
   const ensureLogo = useCallback(() => {
@@ -143,7 +294,7 @@ function WifiBillEditor() {
       logoPromise.current = loadWifiOperator()
         .then(async (operator) => {
           const [logoUrl, paymentLogoUrl, signatureUrl] = await Promise.all([
-            loadCloudImageDataUrl(operator.logoUrl!),
+            loadCloudImageDataUrl(REFERENCE_AIRTEL_LOGO_URL),
             loadCloudImageDataUrl(operator.paymentLogoUrl!),
             loadCloudImageDataUrl(operator.signatureUrl!),
           ]);
@@ -221,8 +372,53 @@ function WifiBillEditor() {
   }, []);
 
   useEffect(() => {
+    if (!customerId || !/^\d{4}-(0[1-9]|1[0-2])$/.test(data.billMonth)) return;
+    const requestId = ++billingContextRequest.current;
     let active = true;
-    createPaymentQr(data).then(({ qrUrl, paymentLink: link, issue }) => {
+    const request = Promise.resolve().then(() => {
+      if (!active || !mounted.current || billingContextRequest.current !== requestId) return null;
+      setLoadingBill(true);
+      setSaveError("");
+      return getWifiBillingContext(customerId, data.billMonth);
+    });
+    void request
+      .then((context) => {
+        if (!context || !active || !mounted.current || billingContextRequest.current !== requestId) return;
+        const restored = billFromContext(data, context, data.billMonth);
+        setData(restored);
+        if (context.selectedBill) {
+          setSavedBill({ id: context.selectedBill.id, version: context.selectedBill.version });
+          setSavedSnapshot(wifiBillFingerprint(restored));
+          setLastSavedAt(context.selectedBill.updatedAt);
+        } else {
+          setSavedBill(null);
+          setSavedSnapshot(wifiBillFingerprint(restored));
+          setLastSavedAt("");
+          clientDraftId.current = null;
+        }
+        paymentUpiOverridden.current = Boolean(restored.paymentUpiId.trim()) && !isDerivedAirtelPaymentUpiId(restored);
+        setErrors({});
+        setSaveConflict(false);
+        setExportError("");
+        setPreview(null);
+      })
+      .catch((error: unknown) => {
+        if (active && mounted.current && billingContextRequest.current === requestId) {
+          setSaveError(error instanceof Error ? error.message : "Unable to load the selected month's stored billing record.");
+        }
+      })
+      .finally(() => {
+        if (active && mounted.current && billingContextRequest.current === requestId) setLoadingBill(false);
+      });
+    return () => { active = false; };
+    // Reload only when the account or selected month changes. Plan edits must
+    // never trigger a historical-record refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerId, data.billMonth]);
+
+  useEffect(() => {
+    let active = true;
+    createPaymentQr(createdBill).then(({ qrUrl, paymentLink: link, issue }) => {
       if (active) { setPaymentQrUrl(qrUrl); setPaymentLink(link); setQrError(issue); }
     }).catch(() => {
       if (active) {
@@ -232,7 +428,7 @@ function WifiBillEditor() {
       }
     });
     return () => { active = false; };
-  }, [data]);
+  }, [createdBill]);
 
   const handleChange = <K extends keyof WifiBillData>(field: K, value: WifiBillData[K]) => {
     if (field === "paymentUpiId") {
@@ -246,7 +442,13 @@ function WifiBillEditor() {
       if ((field === "accountNumber" || field === "providerName") && !paymentUpiOverridden.current) {
         next = { ...next, paymentUpiId: syncWifiPaymentUpiId(next, false) };
       }
-      return field === "billMonth" || field === "monthMode" ? resolveWifiBillDates(next) : next;
+      if (field === "billMonth" || field === "monthMode") {
+        next = resolveWifiBillDates(next);
+        if (!customerId) next = applyReferenceMonthContext(next);
+      }
+      return field === "rentalAmount" || field === "billMonth" || field === "monthMode"
+        ? applyPlanBasedLastPayment(next)
+        : next;
     });
     setErrors({});
     setExportError("");
@@ -309,7 +511,7 @@ function WifiBillEditor() {
 
   const saveDraft = async () => {
     if (saveInProgress.current || exportInProgress.current || loadingBill || signatureUploading || signatureLoading) return;
-    const snapshot = resolveWifiBillDates(data);
+    const snapshot = prepareCanonicalBill(resolveWifiBillDates(data));
     if (!snapshot.customerName.trim()) {
       setErrors({ customerName: "Enter a customer name to save this draft." });
       document.getElementById("wifi-customerName")?.focus();
@@ -325,10 +527,16 @@ function WifiBillEditor() {
       clientDraftId.current ??= crypto.randomUUID();
       const result = await saveWifiDraft(snapshot, customerId, savedBill, clientDraftId.current);
       if (!mounted.current) return;
+      const restored = prepareCanonicalBill({
+        ...createDefaultWifiBill(),
+        ...result.bill.data,
+        ...wifiCustomerFields(result.customer),
+        monthMode: snapshot.monthMode,
+      });
+      setData(restored);
       setSavedBill({ id: result.bill.id, version: result.bill.version });
       setCustomerId(result.bill.customerId);
-      // Preserve edits made while this request was in flight; only this snapshot was saved.
-      setSavedSnapshot(wifiBillFingerprint(result.bill.data));
+      setSavedSnapshot(wifiBillFingerprint(restored));
       setLastSavedAt(result.bill.updatedAt);
       setLibraryRevision((current) => current + 1);
     } catch (error) {
@@ -354,7 +562,7 @@ function WifiBillEditor() {
       const { bill } = await getWifiSavedBill(id);
       if (!mounted.current) return;
       // Reopened bills retain their saved month even when the device month changes.
-      const restored = withDerivedAirtelPaymentUpiId({ ...createDefaultWifiBill(), ...bill.data, monthMode: "custom" as const });
+      const restored = prepareCanonicalBill({ ...createDefaultWifiBill(), ...bill.data, monthMode: "custom" as const });
       paymentUpiOverridden.current = Boolean(restored.paymentUpiId.trim()) && !isDerivedAirtelPaymentUpiId(restored);
       setData(restored);
       setSavedSnapshot(wifiBillFingerprint(restored));
@@ -372,7 +580,7 @@ function WifiBillEditor() {
 
   const exportBill = async (mode: "preview" | "download") => {
     if (exportInProgress.current || saveInProgress.current || loadingBill || signatureUploading || signatureLoading) return;
-    const exportData = resolveWifiBillDates(data);
+    const exportData = prepareCanonicalBill(resolveWifiBillDates(data));
     flushSync(() => setData(exportData));
     const validationErrors = validateWifiBill(exportData);
     setErrors(validationErrors);
@@ -396,18 +604,41 @@ function WifiBillEditor() {
     exportInProgress.current = true;
     setOperation(mode);
     try {
-      const [payment, logos] = await Promise.all([
-        createPaymentQr(exportData),
-        usesReferenceOperator(exportData.providerName)
+      const logos = await (usesReferenceOperator(exportData.providerName)
           ? ensureLogo().catch(() => ({
               logoUrl: REFERENCE_AIRTEL_LOGO_URL,
               paymentLogoUrl: REFERENCE_AIRTEL_PAYMENT_LOGO_URL,
               signatureUrl: REFERENCE_AIRTEL_SIGNATURE_URL,
             }))
-          : Promise.resolve({ logoUrl: "", paymentLogoUrl: "", signatureUrl: "" }),
-      ]);
+          : Promise.resolve({ logoUrl: "", paymentLogoUrl: "", signatureUrl: "" }));
       if (!mounted.current) return;
+      const [embeddedLogo, embeddedDetailLogo, embeddedPaymentLogo, embeddedSignature, pageTwoBannerDataUrl] = await Promise.all([
+        embeddedImage(logos.logoUrl),
+        usesReferenceOperator(exportData.providerName)
+          ? embeddedImage(REFERENCE_AIRTEL_DETAIL_LOGO_URL)
+          : embeddedImage(logos.logoUrl),
+        embeddedImage(logos.paymentLogoUrl),
+        embeddedImage(signatureSource ? signatureDataUrl : logos.signatureUrl),
+        usesReferenceOperator(exportData.providerName)
+          ? embeddedImage(REFERENCE_AIRTEL_PAGE_TWO_BANNER_URL)
+          : Promise.resolve(""),
+      ]);
+      const exportInvoice = createWifiInvoice(exportData, {
+        logoUrl: embeddedLogo,
+        detailLogoUrl: embeddedDetailLogo,
+        paymentLogoUrl: embeddedPaymentLogo,
+        signatureUrl: embeddedSignature,
+        pageTwoBannerUrl: pageTwoBannerDataUrl,
+        paymentAppName: usesReferenceOperator(exportData.providerName) ? "Airtel Thanks App" : "",
+        paymentPortalUrl: usesReferenceOperator(exportData.providerName) ? "https://www.airtel.in/pay" : "",
+      });
+      const payment = await createPaymentQr(exportInvoice);
       if (payment.issue) throw new Error(payment.issue);
+      assertWifiInvoiceReadyForExport(exportInvoice, {
+        qrPayload: payment.paymentLink,
+        decodedQrPayload: payment.decodedQrPayload,
+        barcodeModules: encodeCode128B(exportInvoice.barcodeValue).modules,
+      });
       flushSync(() => {
         setPaymentQrUrl(payment.qrUrl);
         setPaymentLink(payment.paymentLink);
@@ -415,38 +646,12 @@ function WifiBillEditor() {
         if (logos.paymentLogoUrl) setPaymentLogoDataUrl(logos.paymentLogoUrl);
         if (logos.signatureUrl) setDefaultSignatureDataUrl(logos.signatureUrl);
       });
-      await document.fonts.ready;
-      await Promise.all(pagesRef.current.flatMap((page) => Array.from(page?.querySelectorAll("img") ?? [])).map(async (image) => {
-        await image.decode();
-        if (!image.naturalWidth) throw new Error("A bill image did not load. Please retry.");
-      }));
-      const pages = pageLabels.map((label, index) => {
-        const element = pagesRef.current[index];
-        if (!element) throw new Error("The bill preview is still loading. Please try again.");
-        const footer = element.querySelector("footer");
-        const footerTop = footer?.getBoundingClientRect().top ?? Infinity;
-        const overlapsFooter = Array.from(element.children).some(
-          (child) => child !== footer && child.getBoundingClientRect().bottom > footerTop,
-        );
-        if (overlapsFooter || element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth) {
-          throw new Error(`${label} contains more content than fits on one page. Shorten the address, payment instructions, or notes and try again.`);
-        }
-        return { element, label };
-      });
-      const pdf = await buildOptimizedPdf(pages);
-      pdf.setProperties({
-        title: `WiFi bill - ${exportData.billMonth} - ${exportData.invoiceNumber}`,
-        subject: `Account ${exportData.accountNumber}; period ${exportData.periodStart} to ${exportData.periodEnd}; due ${exportData.dueDate}`,
-        author: exportData.providerName,
-        keywords: `WiFi, invoice, ${exportData.billMonth}, ${exportData.invoiceNumber}`,
+      const pages = pagesRef.current.map((element, index) => {
+        if (!element) throw new Error(`Wi-Fi bill preview page ${index + 1} is not ready for PDF export.`);
+        return { element, label: `Wi-Fi bill page ${index + 1}` };
       });
       if (!mounted.current) return;
-      const fileName = billFileName(exportData);
-      if (mode === "download") {
-        pdf.save(fileName);
-      } else {
-        setPreview({ url: URL.createObjectURL(pdf.output("blob")), fileName });
-      }
+      setExportRequest({ pages, fileName: billFileName(exportInvoice), mode });
     } catch (error) {
       if (mounted.current) setExportError(error instanceof Error ? error.message : "Unable to generate the bill. Please try again.");
     } finally {
@@ -564,11 +769,19 @@ function WifiBillEditor() {
               <span className="text-[10px] text-slate-400">4 A4 pages · Scroll to review</span>
             </div>
             <div className="overflow-x-auto p-4 sm:p-6">
-              <WifiBillDocument data={data} logoUrl={referenceOperator ? logoDataUrl : undefined} paymentLogoUrl={referenceOperator ? paymentLogoDataUrl : undefined} signatureUrl={signatureDataUrl} paymentQrUrl={paymentQrUrl} paymentLink={paymentLink} onPageRef={(index, element) => { pagesRef.current[index] = element; }} />
+              <WifiBillDocument invoice={createdBill} paymentQrUrl={paymentQrUrl} paymentLink={paymentLink} onPageRef={(index, element) => { pagesRef.current[index] = element; }} />
             </div>
           </section>
         </main>
       </div>
+      {exportRequest && <PdfExportDialog
+        getPages={getExportPages}
+        fileName={exportRequest.fileName}
+        initialAction={exportRequest.mode}
+        serialize={serializeWifiPdfBlob}
+        onClose={() => setExportRequest(null)}
+        onPreview={setPreview}
+      />}
       {preview && <PdfPreviewModal url={preview.url} fileName={preview.fileName} onClose={() => setPreview(null)} />}
     </div>
   );

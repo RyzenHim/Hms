@@ -23,10 +23,10 @@ const isSecureCloudinaryUrl = (value) => {
 const serviceError = (message, statusCode) =>
   Object.assign(new Error(message), { statusCode });
 
-// Only these bundled assets, extracted from the reference bill, can be uploaded.
+// Only the supplied SVG logo and bundled reference-bill artwork can be uploaded.
 // The source bill and its customer/payment information never leave the project.
 const createWifiOperatorService = ({
-  logoPath = path.join(assetDirectory, "airtel-logo.png"),
+  logoPath = path.join(assetDirectory, "airtel-logo.svg"),
   paymentLogoPath = path.join(assetDirectory, "airtel-payments-bank-logo.png"),
   signaturePath = path.join(assetDirectory, "airtel-signature.png"),
   manifestPath = path.join(assetDirectory, "operator-logo.json"),

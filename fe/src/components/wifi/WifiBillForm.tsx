@@ -38,14 +38,15 @@ interface FieldDefinition {
 const customerFields: FieldDefinition[] = [
   { field: "customerName", label: "Customer name", required: true, autoComplete: "name" },
   { field: "customerPhone", label: "Mobile number", type: "tel", required: true, autoComplete: "tel" },
-  { field: "customerAddress", label: "Billing address", required: true, multiline: true, wide: true, autoComplete: "street-address" },
+  { field: "customerAddressLine1", label: "Address line 1", required: true, wide: true, autoComplete: "street-address", hint: "Street, building and locality only. City and state are added below." },
+  { field: "customerCity", label: "City", required: true, autoComplete: "address-level2" },
   { field: "customerEmail", label: "Email address", type: "email", autoComplete: "email" },
   { field: "customerGstin", label: "Customer GSTIN", hint: "Optional, for customers registered for GST." },
-  { field: "customerState", label: "State / place of supply", autoComplete: "address-level1" },
+  { field: "customerState", label: "State / place of supply", required: true, autoComplete: "address-level1" },
+  { field: "customerPostalCode", label: "Postal code", required: true, autoComplete: "postal-code" },
   { field: "customerStateCode", label: "State code", hint: "Two-digit state code, if applicable." },
   { field: "accountNumber", label: "Account number", required: true, hint: "Printed below the Billing Address barcode; use English letters, numbers or symbols." },
   { field: "invoiceNumber", label: "Invoice number", required: true, hint: "Used as the UPI reference and printed below the Billing Address barcode; use up to 35 English letters, numbers or symbols." },
-  { field: "billingBarcodeValue", label: "Billing-address barcode value", wide: true, hint: "One Code 128 payload for the Billing Address block. Leave blank to encode the account number." },
   { field: "wifiId", label: "WiFi / broadband ID" },
   { field: "fixedlineNumber", label: "Fixed-line number", type: "tel" },
 ];
@@ -58,12 +59,12 @@ const billingFields: FieldDefinition[] = [
 ];
 
 const planFields: FieldDefinition[] = [
-  { field: "planName", label: "Plan name", required: true, wide: true },
+  { field: "planDisplayName", label: "Plan display name", required: true, wide: true, hint: "This exact name is reused throughout the bill." },
   { field: "speed", label: "Internet speed", hint: "For example, 100 Mbps." },
   { field: "quota", label: "Data allowance", hint: "For example, Unlimited or 1,000 GB." },
   { field: "connections", label: "Number of connections", type: "number", min: 1, max: 999, step: 1 },
-  { field: "hsnCode", label: "HSN / SAC code" },
-  { field: "rentalAmount", label: "Plan amount (₹)", type: "number", required: true, min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, hint: "Total for all connections in this billing period." },
+  { field: "hsnSacCode", label: "HSN / SAC code" },
+  { field: "rentalAmount", label: "Plan amount (₹)", type: "number", required: true, min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, hint: "Amount before GST. The last bill and last payment use this exact amount; GST is added to current charges." },
   { field: "discount", label: "Discount (₹)", type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01 },
   { field: "otherCharges", label: "Other charges (₹)", type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01 },
   { field: "gstRate", label: "Total GST rate (%)", type: "number", required: true, min: 0, max: 100, step: 0.01, hint: "Use 0 for no GST. For split GST, this rate is divided equally between CGST and SGST." },
@@ -96,30 +97,30 @@ const providerInformationFields: FieldDefinition[] = [
   { field: "addressChangeInformation", label: "Address change information", multiline: true, wide: true },
   { field: "otherInformation", label: "Other statutory information", multiline: true, wide: true },
   { field: "fupInformation", label: "Fair Usage Policy note", multiline: true, wide: true },
-  { field: "hsnServiceInformation", label: "HSN / SAC service catalogue", multiline: true, wide: true },
+  { field: "hsnServiceDescription", label: "HSN / SAC service description", wide: true },
 ];
 
 const paymentFields: FieldDefinition[] = [
-  { field: "previousBalance", label: "Previous balance (₹)", type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01 },
-  { field: "paymentReceived", label: "Payment received (₹)", type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01 },
-  { field: "paymentCoupon", label: "Payment coupon (₹)", type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, hint: "Reduces the balance due." },
+  { field: "previousBalance", label: "Last bill amount (₹)", type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, readOnly: true, hint: "Automatically matches the entered plan amount." },
+  { field: "paymentReceived", label: "Last payment (₹)", type: "number", min: -WIFI_BILL_MAX_AMOUNT, max: 0, step: 0.01, readOnly: true, hint: "Automatically records one signed payment equal to the entered plan amount." },
+  { field: "paymentCoupon", label: "Payment coupon (₹)", type: "number", min: -WIFI_BILL_MAX_AMOUNT, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, hint: "Enter coupons as negative values." },
   { field: "paymentDate", label: "Payment date", type: "date" },
   { field: "paymentMethod", label: "Payment method", hint: "For example, UPI, card or bank transfer." },
-  { field: "credits", label: "Credits / adjustments (₹)", type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, hint: "Reduces the balance due." },
+  { field: "credits", label: "Credits / adjustments (₹)", type: "number", min: -WIFI_BILL_MAX_AMOUNT, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, hint: "Enter credits as negative values." },
   { field: "creditLimit", label: "Credit limit (₹)", type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, hint: "Informational account limit shown on the tax invoice." },
   { field: "securityDeposit", label: "Security deposit (₹)", type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, hint: "Informational deposit shown on the tax invoice." },
   { field: "notes", label: "Additional notes", multiline: true, wide: true },
 ];
 
-const historyFields: FieldDefinition[] = ([1, 2, 3] as const).flatMap((month) => {
+const historyFields: FieldDefinition[] = ([1] as const).flatMap((month) => {
   const prefix = `history${month}` as const;
   const period = month === 1 ? "1 month ago" : `${month} months ago`;
   return [
-    { field: `${prefix}PreviousDues`, label: `${period} — previous dues (₹)`, type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01 },
-    { field: `${prefix}Payments`, label: `${period} — payments (₹)`, type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01 },
-    { field: `${prefix}PaymentCoupon`, label: `${period} — payment coupon (₹)`, type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01 },
-    { field: `${prefix}Credits`, label: `${period} — credits (₹)`, type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01 },
-    { field: `${prefix}CurrentCharges`, label: `${period} — monthly charges (₹)`, type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01 },
+    { field: `${prefix}PreviousDues`, label: `${period} — previous dues (₹)`, type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, readOnly: true },
+    { field: `${prefix}Payments`, label: `${period} — payments (₹)`, type: "number", min: -WIFI_BILL_MAX_AMOUNT, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, readOnly: true },
+    { field: `${prefix}PaymentCoupon`, label: `${period} — payment coupon (₹)`, type: "number", min: -WIFI_BILL_MAX_AMOUNT, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, readOnly: true },
+    { field: `${prefix}Credits`, label: `${period} — credits (₹)`, type: "number", min: -WIFI_BILL_MAX_AMOUNT, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, readOnly: true },
+    { field: `${prefix}CurrentCharges`, label: `${period} — monthly charges (₹)`, type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, readOnly: true },
   ] as FieldDefinition[];
 });
 
@@ -227,14 +228,11 @@ export function WifiBillForm({
       {renderSection("Customer information", "Enter the customer and account details to print on the bill.", customerFields)}
       {renderSection("Billing period", "Dates follow the reference PDF schedule for the selected month.", billingFields)}
       {renderSection("Payment QR", "The QR and payment link use these recipient details plus the bill's current payable amount, invoice, HSN and GST values.", qrFields)}
-      {renderSection("Plan & charges", "Set the complete plan amount and choose how GST is applied.", planFields, <>
+      {renderSection("Plan & charges", "Enter the plan amount before GST. The configured GST rate is added to current charges.", planFields, <>
         <div>
-          <label htmlFor="wifi-amountMode" className="mb-1.5 block text-xs font-medium text-slate-300">Amount entry</label>
-          <select id="wifi-amountMode" name="amountMode" value={data.amountMode} onChange={(event) => onChange("amountMode", event.target.value as WifiBillData["amountMode"])} className={inputClassName} aria-invalid={Boolean(errors.amountMode)} aria-describedby={`wifi-amountMode-hint${errors.amountMode ? " wifi-amountMode-error" : ""}`}>
-            <option value="exclusive">Amounts exclude GST</option>
-            <option value="inclusive">Amounts include GST</option>
-          </select>
-          <p id="wifi-amountMode-hint" className="mt-1.5 text-xs leading-5 text-slate-500">Applies to the plan amount, discount and other charges. Inclusive amounts have GST extracted from them.</p>
+          <label htmlFor="wifi-amountMode" className="mb-1.5 block text-xs font-medium text-slate-300">GST handling</label>
+          <input id="wifi-amountMode" name="amountMode" value="GST added to plan amount" readOnly className={inputClassName} aria-invalid={Boolean(errors.amountMode)} aria-describedby={`wifi-amountMode-hint${errors.amountMode ? " wifi-amountMode-error" : ""}`} />
+          <p id="wifi-amountMode-hint" className="mt-1.5 text-xs leading-5 text-slate-500">For ₹999 at 18% GST, current charges are ₹1,178.82.</p>
           {errors.amountMode && <p id="wifi-amountMode-error" className="mt-1.5 text-xs text-rose-400">{errors.amountMode}</p>}
         </div>
         <div>
@@ -291,8 +289,8 @@ export function WifiBillForm({
       ), true)}
       {renderSection("Provider notices", "Review the customer-care, statutory, policy and HSN information printed on the final page.", providerInformationFields, undefined, true)}
       {renderSection("Voice tariff details", "Enter each row as Local | STD intra-circle | STD inter-circle | ISD. These values are printed in the same four columns as the reference bill.", tariffFields, undefined, true)}
-      {renderSection("Previous bill history", "Enter the five values printed for each of the three earlier months. Amount payable is calculated from previous dues minus payments, coupons and credits, plus monthly charges.", historyFields, undefined, true)}
-      {renderSection("Payments & adjustments", "Use these fields to reconcile previous balances and payments. Leave unused amounts at zero.", paymentFields, undefined, true)}
+      {renderSection("Previous bill history", "Only the immediately previous month is shown. Its last bill and payment match the Plan amount; current charges include GST.", historyFields, undefined, true)}
+      {renderSection("Payments & adjustments", "The last bill and single last-payment amount follow the plan price. Coupons and credits remain optional signed adjustments.", paymentFields, undefined, true)}
     </fieldset>
   );
 }

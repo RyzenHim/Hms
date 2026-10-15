@@ -2,10 +2,15 @@ import type {
   WifiBillData,
   WifiBillErrors,
   WifiBillTotals,
+  WifiStoredMonthlyRecord,
 } from "../types/wifi-bill";
 
 // Keep all intermediate integer arithmetic below Number.MAX_SAFE_INTEGER.
 export const WIFI_BILL_MAX_AMOUNT = 9_999_999.99;
+export const WIFI_INTERNET_SERVICE = Object.freeze({
+  hsnSacCode: "998412",
+  description: "Fixed Telephony Service",
+});
 const FIXED_LATE_FEE_MINIMUM_PAISE = 300 * 100;
 const PERCENTAGE_LATE_FEE_THRESHOLD_PAISE = 5_000 * 100;
 const FIXED_LATE_FEE_PAISE = 100 * 100;
@@ -38,9 +43,11 @@ export const WIFI_BILL_TEXT_LIMITS: Partial<Record<keyof WifiBillData, number>> 
   addressChangeInformation: 300,
   otherInformation: 900,
   fupInformation: 350,
-  hsnServiceInformation: 700,
+  hsnServiceDescription: 160,
   customerName: 80,
-  customerAddress: 240,
+  customerAddressLine1: 180,
+  customerCity: 60,
+  customerPostalCode: 10,
   customerEmail: 100,
   customerPhone: 20,
   customerGstin: 15,
@@ -48,13 +55,12 @@ export const WIFI_BILL_TEXT_LIMITS: Partial<Record<keyof WifiBillData, number>> 
   customerStateCode: 2,
   accountNumber: 40,
   invoiceNumber: 35,
-  billingBarcodeValue: 80,
   wifiId: 60,
   fixedlineNumber: 25,
-  planName: 80,
+  planDisplayName: 80,
   speed: 30,
   quota: 40,
-  hsnCode: 12,
+  hsnSacCode: 6,
   paymentMethod: 100,
   tariffAirtelFixedline: 160,
   tariffOtherFixedline: 160,
@@ -67,7 +73,6 @@ export const WIFI_BILL_TEXT_LIMITS: Partial<Record<keyof WifiBillData, number>> 
 /** Explicit line breaks, including blank lines, must fit the fixed A4 sections. */
 export const WIFI_BILL_LINE_LIMITS: Partial<Record<keyof WifiBillData, number>> = {
   providerAddress: 5,
-  customerAddress: 5,
   paymentInstructions: 4,
   registeredOffice: 4,
   corporateOffice: 4,
@@ -78,10 +83,10 @@ export const WIFI_BILL_LINE_LIMITS: Partial<Record<keyof WifiBillData, number>> 
   addressChangeInformation: 4,
   otherInformation: 8,
   fupInformation: 4,
-  hsnServiceInformation: 8,
   notes: 8,
 };
 const DECIMAL_PATTERN = /^\d+(?:\.\d{1,2})?$/;
+const SIGNED_DECIMAL_PATTERN = /^-?\d+(?:\.\d{1,2})?$/;
 const EMPTY_VALUE = "—";
 
 const moneyFormatter = new Intl.NumberFormat("en-IN", {
@@ -91,12 +96,10 @@ const moneyFormatter = new Intl.NumberFormat("en-IN", {
   maximumFractionDigits: 2,
 });
 
-const dateFormatter = new Intl.DateTimeFormat("en-IN", {
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-  timeZone: "UTC",
-});
+const SHORT_MONTHS = Object.freeze([
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+]);
 
 const monthFormatter = new Intl.DateTimeFormat("en-IN", {
   month: "long",
@@ -147,6 +150,168 @@ export function getBillingDates(month: string) {
   };
 }
 
+function offsetBillMonth(month: string, offset: number): string {
+  if (!isValidMonth(month)) return "";
+  const [year, monthNumber] = month.split("-").map(Number);
+  return new Date(Date.UTC(year, monthNumber - 1 + offset, 1)).toISOString().slice(0, 7);
+}
+
+function storedPaise(value: number, label: string): number {
+  const paise = Math.round(value * 100);
+  if (!Number.isFinite(value) || !Number.isSafeInteger(paise)) {
+    throw new Error(`${label} must be a valid stored amount.`);
+  }
+  return paise;
+}
+
+function storedInputAmount(value: number, label: string, adjustment = false): string {
+  const paise = storedPaise(value, label);
+  if (adjustment && paise > 0) {
+    throw new Error(`${label} must be stored as a signed zero or negative adjustment.`);
+  }
+  if (!adjustment && paise < 0) {
+    throw new Error(`${label} cannot be negative.`);
+  }
+  const amount = adjustment ? paise : Math.abs(paise);
+  return (amount / 100).toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+}
+
+/** Apply the same signed formula used by a persisted bills-and-payments row. */
+export function storedMonthlyAmountPayable(record: WifiStoredMonthlyRecord): number {
+  const payablePaise = storedPaise(record.previousDues, "Previous dues")
+    + storedPaise(record.payments, "Payments")
+    + storedPaise(record.paymentCoupon, "Payment coupon")
+    + storedPaise(record.credits, "Credits")
+    + storedPaise(record.currentCharges, "Current charges");
+  return Math.max(0, payablePaise) / 100;
+}
+
+function emptyHistoryFields(offset: 1 | 2 | 3): Partial<WifiBillData> {
+  return {
+    [`history${offset}PreviousDues`]: "",
+    [`history${offset}Payments`]: "",
+    [`history${offset}PaymentCoupon`]: "",
+    [`history${offset}Credits`]: "",
+    [`history${offset}CurrentCharges`]: "",
+  } as Partial<WifiBillData>;
+}
+
+/**
+ * Hydrate the selected statement from stored month/account records. The plan
+ * fields remain editable and drive the selected month's current charges plus
+ * the single plan-priced last-payment pair shown on the statement.
+ * A missing selected record is rejected so an invoice number must be generated
+ * and persisted once by the API before rendering or export.
+ */
+export function buildSelectedMonthBillData(
+  data: WifiBillData,
+  records: readonly WifiStoredMonthlyRecord[],
+  selectedMonth = data.billMonth,
+): WifiBillData {
+  const accountNumber = data.accountNumber.trim();
+  const accountRecords = records.filter((record) => record.accountNumber.trim() === accountNumber);
+  const recordByMonth = new Map(accountRecords.map((record) => [record.billMonth, record]));
+  const selectedRecord = recordByMonth.get(selectedMonth);
+  if (!selectedRecord?.invoiceNumber.trim()) {
+    throw new Error(`Persist the ${selectedMonth || "selected month"} billing record before generating its bill.`);
+  }
+
+  const previousRecord = recordByMonth.get(offsetBillMonth(selectedMonth, -1));
+  const settlement = previousRecord?.settlement || null;
+  const history: Partial<WifiBillData> = {
+    ...emptyHistoryFields(1),
+    ...emptyHistoryFields(2),
+    ...emptyHistoryFields(3),
+    ...(previousRecord ? {
+      // Non-empty markers create the single previous-month row. The exact
+      // plan input replaces every amount in applyPlanBasedLastPayment below.
+      history1PreviousDues: "0",
+      history1Payments: "0",
+      history1PaymentCoupon: "0",
+      history1Credits: "0",
+      history1CurrentCharges: "0",
+    } : {}),
+  };
+
+  return applyPlanBasedLastPayment({
+    ...data,
+    ...getBillingDates(selectedMonth),
+    invoiceNumber: selectedRecord.invoiceNumber.trim(),
+    previousBalance: "0",
+    paymentReceived: "0",
+    paymentCoupon: "0",
+    credits: "0",
+    paymentDate: settlement?.paymentDate || "",
+    paymentMethod: settlement?.paymentMethod || "",
+    statementCurrentCharges: storedInputAmount(
+      selectedRecord.currentCharges,
+      `${selectedRecord.billMonth} current charges`,
+    ),
+    ...history,
+  });
+}
+
+export const REFERENCE_ACCOUNT_NUMBER = "20025842515";
+
+/** Stored operator history; current plan edits never mutate these records. */
+export const REFERENCE_WIFI_MONTHLY_RECORDS: readonly WifiStoredMonthlyRecord[] = Object.freeze([
+  Object.freeze({
+    accountNumber: REFERENCE_ACCOUNT_NUMBER,
+    billMonth: "2026-05",
+    invoiceNumber: "",
+    previousDues: 520.52,
+    payments: -520.52,
+    paymentCoupon: 0,
+    credits: 0,
+    currentCharges: 588.82,
+    settlement: Object.freeze({ payments: -588.82, paymentCoupon: 0, credits: 0, paymentDate: "2026-05-16", paymentMethod: "Payment via Third Party BBPS (Digital-APBL)" }),
+  }),
+  Object.freeze({
+    accountNumber: REFERENCE_ACCOUNT_NUMBER,
+    billMonth: "2026-06",
+    invoiceNumber: "",
+    previousDues: 588.82,
+    payments: -588.82,
+    paymentCoupon: 0,
+    credits: 0,
+    currentCharges: 470.82,
+    settlement: Object.freeze({ payments: -470.82, paymentCoupon: 0, credits: 0, paymentDate: "2026-06-16", paymentMethod: "Payment via Third Party BBPS (Digital-APBL)" }),
+  }),
+  Object.freeze({
+    accountNumber: REFERENCE_ACCOUNT_NUMBER,
+    billMonth: "2026-07",
+    invoiceNumber: "",
+    previousDues: 470.82,
+    payments: -470.82,
+    paymentCoupon: 0,
+    credits: 0,
+    currentCharges: 451.19,
+    settlement: Object.freeze({ payments: -451.19, paymentCoupon: 0, credits: 0, paymentDate: "2026-07-15", paymentMethod: "Payment via Third Party BBPS (Digital-APBL)" }),
+  }),
+  Object.freeze({
+    accountNumber: REFERENCE_ACCOUNT_NUMBER,
+    billMonth: "2026-08",
+    invoiceNumber: "HF2708I003089481",
+    previousDues: 451.19,
+    payments: -451.19,
+    paymentCoupon: 0,
+    credits: 0,
+    currentCharges: 470.82,
+    settlement: Object.freeze({ payments: -470.82, paymentCoupon: 0, credits: 0, paymentDate: "2026-08-16", paymentMethod: "Payment via Third Party BBPS (Digital-APBL)" }),
+  }),
+  Object.freeze({
+    accountNumber: REFERENCE_ACCOUNT_NUMBER,
+    billMonth: "2026-09",
+    invoiceNumber: "HF2708I003894536",
+    previousDues: 470.82,
+    payments: -470.82,
+    paymentCoupon: 0,
+    credits: 0,
+    currentCharges: 1178.82,
+    settlement: null,
+  }),
+]);
+
 /** Resolve from the user's local system clock, including immediately before export. */
 export function resolveWifiBillDates(data: WifiBillData, now: Date = new Date()): WifiBillData {
   const month = data.monthMode === "current" ? localIsoDate(now).slice(0, 7) : data.billMonth;
@@ -183,9 +348,11 @@ export function createDefaultWifiBill(now: Date = new Date()): WifiBillData {
     addressChangeInformation: "Visit the nearest Airtel Store with new address proof. Store details: www.airtel.in/store.",
     otherInformation: "Tariff plan: no increase in any line item (except ISD) for the first 6 months from enrolment, subject to terms. No fee is charged for migrating to any plan. After permanent disconnection, the security deposit is refunded within 60 days; otherwise interest is paid at 10% p.a. Calls may be rounded off. Billing disagreements must be reported within 2 months of bill receipt; after that no claim will be entertained. Reverse charge basis: NO. The Airtel Wi-Fi router is Airtel property and may be reclaimed when service ends.",
     fupInformation: "Post consumption of the unlimited quota, speed is revised to 2 Mbps as per the Fair Usage Policy. For information on other plans, visit www.airtel.in/business/thanksforbusiness/login/.",
-    hsnServiceInformation: "998412 Fixed Telephony Service; 998433 Online video content; 996812 Courier Services; 997317 Leasing or rental services concerning telecommunications equipment with or without operator; 9983 Support services; 998716 Maintenance and repair services of telecommunication equipment and apparatus; 999799 Other Services n.e.c.",
+    hsnServiceDescription: WIFI_INTERNET_SERVICE.description,
     customerName: "",
-    customerAddress: "",
+    customerAddressLine1: "",
+    customerCity: "",
+    customerPostalCode: "",
     customerEmail: "",
     customerPhone: "",
     customerGstin: "",
@@ -193,16 +360,15 @@ export function createDefaultWifiBill(now: Date = new Date()): WifiBillData {
     customerStateCode: "",
     accountNumber: "",
     invoiceNumber: "",
-    billingBarcodeValue: "",
     wifiId: "",
     fixedlineNumber: "",
     monthMode: "current",
     ...getBillingDates(billMonth),
-    planName: "Broadband Plan",
+    planDisplayName: "Broadband Plan",
     speed: "",
     quota: "",
     connections: "1",
-    hsnCode: "998422",
+    hsnSacCode: WIFI_INTERNET_SERVICE.hsnSacCode,
     rentalAmount: "999",
     discount: "0",
     otherCharges: "0",
@@ -212,6 +378,7 @@ export function createDefaultWifiBill(now: Date = new Date()): WifiBillData {
     previousBalance: "0",
     paymentReceived: "0",
     paymentCoupon: "0",
+    statementCurrentCharges: "",
     history1PreviousDues: "",
     history1Payments: "",
     history1PaymentCoupon: "",
@@ -250,8 +417,8 @@ export function createDefaultWifiBill(now: Date = new Date()): WifiBillData {
  * to the visible Ms. Jyoti Kumari Singh / Rs. 1,178.82 statement only. The
  * payment QR is rebuilt elsewhere from these coherent visible values.
  */
-export function createReferenceWifiBill(): WifiBillData {
-  return {
+export function createReferenceWifiBill(billMonth = "2026-08"): WifiBillData {
+  const reference = {
     ...createDefaultWifiBill(),
     providerName: "Bharti Hexacom Limited",
     providerAddress: "Bharti Hexacom Limited, 7th Floor, South Block, Tower B3 Block, World Trade Park, JLN Marg, Jaipur, Rajasthan, 302017",
@@ -277,52 +444,54 @@ export function createReferenceWifiBill(): WifiBillData {
     addressChangeInformation: "Visit the nearest Airtel Store with new address proof. For store details, visit www.airtel.in/store",
     otherInformation: "Tariff Plan: No increase in any line item (except ISD) for first 6months effective enrolment date. T&C apply | No fee is charged for migrating to any plan | Disconnection: For permanent disconnection, security deposit will be refunded within 60days. Else, interest will be paid @10%p.a. | Call pulses will be rounded off | Billing disagreements should be reported within 2months of bill receipt. Post this period no claim shall be entertained. | Whether tax is payable on Reverse Charge Basis - \"NO\". The Airtel Wi-Fi router is Airtel's property & may be reclaimed if the customer discontinues Airtel's Wi-Fi services.",
     fupInformation: "Post consumption of Unlimited quota, the speed would be revised to 2 Mbps as per Fair Usage Policy | For information on other plans, visit www.airtel.in/business/thanksforbusiness/login/",
-    hsnServiceInformation: "998412 Fixed Telephony Service, 998433 On-line video content, 996812 Courier Services, 997317 Leasing or rental services concerning telecommunications equipment with or without operator, 9983 Support services, 998716 Maintenance and repair services of telecommunication equipment and apparatus, 999799 Other Services n.e.c",
+    hsnServiceDescription: WIFI_INTERNET_SERVICE.description,
     customerName: "Ms. Jyoti Kumari Singh",
-    customerAddress: "Raj Manthan Rd, Sms Colony, Mansarovar, Jaipur, Rajasthan\nJaipur, Rajasthan, 302020,",
+    customerAddressLine1: "Raj Manthan Rd, Sms Colony, Mansarovar",
+    customerCity: "Jaipur",
+    customerPostalCode: "302020",
     customerEmail: "jyoti.k.singh009@gmail.com",
     customerPhone: "7061415974",
     customerGstin: ".",
     customerState: "Rajasthan",
     customerStateCode: "08",
     accountNumber: "20025842515",
-    invoiceNumber: "HF2708I003089481",
-    billingBarcodeValue: "20025842515 404694138",
+    invoiceNumber: "",
     wifiId: "014122815145_wifi",
     fixedlineNumber: "01414543702",
     monthMode: "custom",
-    ...getBillingDates("2026-08"),
-    planName: "999 WiFi_100_Mbps",
+    ...getBillingDates(billMonth),
+    planDisplayName: "999 WiFi_100_Mbps",
     speed: "100 Mbps",
     quota: "Unlimited",
     connections: "1",
-    hsnCode: "998422",
+    hsnSacCode: WIFI_INTERNET_SERVICE.hsnSacCode,
     rentalAmount: "999",
     discount: "0",
     otherCharges: "0",
     gstRate: "18",
     taxMode: "split",
     amountMode: "exclusive",
-    previousBalance: "1178.82",
-    paymentReceived: "1178.82",
+    previousBalance: "0",
+    paymentReceived: "0",
     paymentCoupon: "0",
-    history1PreviousDues: "1178.82",
-    history1Payments: "1178.82",
+    statementCurrentCharges: "",
+    history1PreviousDues: "",
+    history1Payments: "",
     history1PaymentCoupon: "0",
     history1Credits: "0",
-    history1CurrentCharges: "1178.82",
-    history2PreviousDues: "1178.82",
-    history2Payments: "1178.82",
+    history1CurrentCharges: "",
+    history2PreviousDues: "",
+    history2Payments: "",
     history2PaymentCoupon: "0",
     history2Credits: "0",
-    history2CurrentCharges: "1178.82",
-    history3PreviousDues: "1178.82",
-    history3Payments: "1178.82",
+    history2CurrentCharges: "",
+    history3PreviousDues: "",
+    history3Payments: "",
     history3PaymentCoupon: "0",
     history3Credits: "0",
-    history3CurrentCharges: "1178.82",
-    paymentDate: "2026-07-15",
-    paymentMethod: "Payment via Third Party BBPS (Digital-APBL)",
+    history3CurrentCharges: "",
+    paymentDate: "",
+    paymentMethod: "",
     credits: "0",
     creditLimit: "2500",
     securityDeposit: "0",
@@ -334,7 +503,8 @@ export function createReferenceWifiBill(): WifiBillData {
     tariffWll: "0.00/60 | 0/60 | 0/60 | for country specific rates visit www.airtel.in",
     lateFee: "",
     notes: "",
-  };
+  } satisfies WifiBillData;
+  return buildSelectedMonthBillData(reference, REFERENCE_WIFI_MONTHLY_RECORDS, billMonth);
 }
 
 /** Exact decimal parsing avoids floating-point errors such as 1.005 * 100. */
@@ -343,6 +513,55 @@ function toPaise(value: string, maximum = WIFI_BILL_MAX_AMOUNT): number {
   if (!DECIMAL_PATTERN.test(trimmed) || Number(trimmed) > maximum) return 0;
   const [whole, fraction = ""] = trimmed.split(".");
   return Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+}
+
+function toSignedPaise(value: string, maximum = WIFI_BILL_MAX_AMOUNT): number {
+  const trimmed = value.trim();
+  if (!SIGNED_DECIMAL_PATTERN.test(trimmed) || Math.abs(Number(trimmed)) > maximum) return 0;
+  const sign = trimmed.startsWith("-") ? -1 : 1;
+  const unsigned = trimmed.replace(/^-/, "");
+  const [whole, fraction = ""] = unsigned.split(".");
+  return sign * (Number(whole) * 100 + Number(fraction.padEnd(2, "0")));
+}
+
+function inputAmountFromPaise(paise: number): string {
+  return (paise / 100).toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+}
+
+/**
+ * The generated statement shows one last payment equal to the entered plan
+ * price. Current charges for the one displayed previous-month row use the
+ * same GST-exclusive plan calculation as the current statement.
+ */
+export function applyPlanBasedLastPayment(data: WifiBillData): WifiBillData {
+  const exclusiveData: WifiBillData = { ...data, amountMode: "exclusive" };
+  const rental = exclusiveData.rentalAmount.trim();
+  if (!DECIMAL_PATTERN.test(rental) || Number(rental) > WIFI_BILL_MAX_AMOUNT) return data;
+  const planPricePaise = toPaise(rental);
+  const planPrice = inputAmountFromPaise(planPricePaise);
+  const signedPlanPayment = planPricePaise === 0 ? "0" : `-${planPrice}`;
+  const currentChargesWithGst = inputAmountFromPaise(
+    Math.round(calculateWifiBill(exclusiveData).totalCurrentCharges * 100),
+  );
+  const hasPreviousMonth = [
+    exclusiveData.history1PreviousDues,
+    exclusiveData.history1Payments,
+    exclusiveData.history1PaymentCoupon,
+    exclusiveData.history1Credits,
+    exclusiveData.history1CurrentCharges,
+  ].some((value) => value.trim() !== "");
+  return {
+    ...exclusiveData,
+    previousBalance: planPrice,
+    paymentReceived: signedPlanPayment,
+    ...(hasPreviousMonth ? {
+      history1PreviousDues: planPrice,
+      history1Payments: signedPlanPayment,
+      history1PaymentCoupon: "0",
+      history1Credits: "0",
+      history1CurrentCharges: currentChargesWithGst,
+    } : {}),
+  };
 }
 
 /** Calculate the contingent overdue fee from the outstanding bill value. */
@@ -384,10 +603,12 @@ export function calculateWifiBill(data: WifiBillData): WifiBillTotals {
   const igst = data.taxMode === "igst" ? tax : 0;
   const currentCharges = taxable + tax;
   const previousBalance = toPaise(data.previousBalance);
-  const paymentReceived = toPaise(data.paymentReceived);
-  const paymentCoupon = toPaise(data.paymentCoupon);
-  const credits = toPaise(data.credits);
-  const previousBalanceDue = previousBalance - paymentReceived - paymentCoupon - credits;
+  const paymentReceived = toSignedPaise(data.paymentReceived);
+  const paymentCoupon = toSignedPaise(data.paymentCoupon);
+  const credits = toSignedPaise(data.credits);
+  const creditLimit = toPaise(data.creditLimit);
+  const securityDeposit = toPaise(data.securityDeposit);
+  const previousBalanceDue = previousBalance + paymentReceived + paymentCoupon + credits;
   const netBalance = currentCharges + previousBalanceDue;
   const payable = Math.max(0, netBalance);
   const lateFee = payable > 0
@@ -402,6 +623,7 @@ export function calculateWifiBill(data: WifiBillData): WifiBillTotals {
     rentalBeforeTax: rentalBeforeTax / 100,
     discountBeforeTax: discountBeforeTax / 100,
     otherChargesBeforeTax: otherChargesBeforeTax / 100,
+    grossChargesBeforeTax: (rentalBeforeTax + otherChargesBeforeTax) / 100,
     taxableAmount: taxable / 100,
     cgstRate: data.taxMode === "split" ? gstBasisPoints / 200 : 0,
     sgstRate: data.taxMode === "split" ? gstBasisPoints / 200 : 0,
@@ -414,6 +636,10 @@ export function calculateWifiBill(data: WifiBillData): WifiBillTotals {
     paymentReceived: paymentReceived / 100,
     paymentCoupon: paymentCoupon / 100,
     credits: credits / 100,
+    creditLimit: creditLimit / 100,
+    securityDeposit: securityDeposit / 100,
+    paymentTotal: (paymentReceived + paymentCoupon + credits) / 100,
+    netRental: (rentalBeforeTax - discountBeforeTax) / 100,
     lateFee: lateFee / 100,
     lateFeeGst: lateFeeGst / 100,
     lateFeeWithGst: (lateFee + lateFeeGst) / 100,
@@ -431,11 +657,15 @@ export function validateWifiBill(data: WifiBillData): WifiBillErrors {
     providerName: "Provider name",
     providerAddress: "Provider address",
     customerName: "Customer name",
-    customerAddress: "Customer address",
+    customerAddressLine1: "Address line 1",
+    customerCity: "City",
+    customerState: "State",
+    customerPostalCode: "Postal code",
     customerPhone: "Customer phone",
     accountNumber: "Account number",
     invoiceNumber: "Invoice number",
-    planName: "Plan name",
+    planDisplayName: "Plan name",
+    hsnSacCode: "HSN / SAC code",
   };
   for (const [field, label] of Object.entries(requiredFields)) {
     if (!data[field as keyof WifiBillData].trim()) {
@@ -473,18 +703,31 @@ export function validateWifiBill(data: WifiBillData): WifiBillErrors {
     errors.issuerSignaturePublicId = "Upload the signature through the bill editor.";
   }
 
-  const moneyFields = [
-    "rentalAmount", "discount", "otherCharges", "previousBalance",
-    "paymentReceived", "paymentCoupon", "credits", "creditLimit", "securityDeposit", "lateFee",
-    "history1PreviousDues", "history1Payments", "history1PaymentCoupon", "history1Credits", "history1CurrentCharges",
-    "history2PreviousDues", "history2Payments", "history2PaymentCoupon", "history2Credits", "history2CurrentCharges",
-    "history3PreviousDues", "history3Payments", "history3PaymentCoupon", "history3Credits", "history3CurrentCharges",
+  const unsignedMoneyFields = [
+    "rentalAmount", "discount", "otherCharges", "previousBalance", "statementCurrentCharges",
+    "creditLimit", "securityDeposit", "lateFee",
+    "history1PreviousDues", "history1CurrentCharges",
+    "history2PreviousDues", "history2CurrentCharges",
+    "history3PreviousDues", "history3CurrentCharges",
   ] as const;
-  for (const field of moneyFields) {
+  for (const field of unsignedMoneyFields) {
     const value = data[field].trim();
     if (!value && field !== "rentalAmount") continue;
     if (!DECIMAL_PATTERN.test(value) || Number(value) > WIFI_BILL_MAX_AMOUNT) {
       errors[field] = `Enter a non-negative amount up to ${WIFI_BILL_MAX_AMOUNT} with at most 2 decimals.`;
+    }
+  }
+  const adjustmentFields = [
+    "paymentReceived", "paymentCoupon", "credits",
+    "history1Payments", "history1PaymentCoupon", "history1Credits",
+    "history2Payments", "history2PaymentCoupon", "history2Credits",
+    "history3Payments", "history3PaymentCoupon", "history3Credits",
+  ] as const;
+  for (const field of adjustmentFields) {
+    const value = data[field].trim();
+    if (!value) continue;
+    if (!SIGNED_DECIMAL_PATTERN.test(value) || Number(value) > 0 || Math.abs(Number(value)) > WIFI_BILL_MAX_AMOUNT) {
+      errors[field] = `Enter a signed zero or negative amount up to ${WIFI_BILL_MAX_AMOUNT} with at most 2 decimals.`;
     }
   }
   if (!errors.rentalAmount && !errors.discount && toPaise(data.discount) > toPaise(data.rentalAmount)) {
@@ -538,10 +781,19 @@ export function validateWifiBill(data: WifiBillData): WifiBillErrors {
   if (data.connections.trim() && (!/^\d+$/.test(data.connections) || Number(data.connections) < 1 || Number(data.connections) > 999)) {
     errors.connections = "Enter a whole number of connections from 1 to 999.";
   }
-  for (const field of ["accountNumber", "invoiceNumber", "billingBarcodeValue"] as const) {
+  for (const field of ["accountNumber", "invoiceNumber"] as const) {
     if (data[field].trim() && !/^[\x20-\x7E]+$/.test(data[field])) {
       errors[field] = "Use printable English letters, numbers or symbols so the barcode can be generated.";
     }
+  }
+  if (data.customerPostalCode.trim() && !/^\d{6}$/.test(data.customerPostalCode.trim())) {
+    errors.customerPostalCode = "Enter a 6-digit postal code.";
+  }
+  if (data.customerStateCode.trim() && !/^\d{2}$/.test(data.customerStateCode.trim())) {
+    errors.customerStateCode = "Enter a 2-digit state code.";
+  }
+  if (data.hsnSacCode.trim() && !/^\d{6}$/.test(data.hsnSacCode.trim())) {
+    errors.hsnSacCode = "Enter a 6-digit HSN / SAC code.";
   }
   return errors;
 }
@@ -550,9 +802,16 @@ export function formatMoney(amount: number): string {
   return moneyFormatter.format(Number.isFinite(amount) ? amount : 0);
 }
 
+/** Machine-readable monetary values share the same two-decimal rounding rule. */
+export function formatPlainAmount(amount: number): string {
+  return (Number.isFinite(amount) ? amount : 0).toFixed(2);
+}
+
 export function formatBillDate(value: string): string {
   const date = parseDate(value);
-  return date ? dateFormatter.format(date) : EMPTY_VALUE;
+  return date
+    ? `${String(date.getUTCDate()).padStart(2, "0")} ${SHORT_MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()}`
+    : EMPTY_VALUE;
 }
 
 export function formatBillMonth(value: string): string {

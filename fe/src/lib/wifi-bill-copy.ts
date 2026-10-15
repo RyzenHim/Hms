@@ -1,0 +1,16 @@
+export const WIFI_BILL_LABELS = Object.freeze({
+  amountPayable: "Amount payable",
+  amountAfterDueDate: "Amount after due date",
+  currentCharges: "Current charges",
+  rentalCharges: "Rental charges",
+  chargesSummary: "This month's charges summary",
+  thisMonthsCharges: "This month's charges",
+  paymentsAndRefunds: "Payments and refunds",
+  total: "Total",
+  taxDetails: "Tax details",
+  billingAddress: "Billing address",
+  account: "Account",
+  billPeriod: "Bill period",
+  billDate: "Bill date",
+  dueDate: "Due date",
+} as const);

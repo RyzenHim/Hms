@@ -80,3 +80,44 @@ export function encodeCode128B(value: string): Code128BEncoding {
     quietZoneModules: CODE128_QUIET_ZONE_MODULES,
   });
 }
+
+/** Decode and checksum-verify the same module stream rendered in the bill SVG. */
+export function decodeCode128BModules(modules: string): string {
+  if (!/^[01]+$/.test(modules)) throw new Error("Code 128 modules must contain only bars and spaces.");
+  const quietZone = "0".repeat(CODE128_QUIET_ZONE_MODULES);
+  if (!modules.startsWith(quietZone) || !modules.endsWith(quietZone)) {
+    throw new Error("Code 128 quiet zones are missing.");
+  }
+
+  const body = modules.slice(CODE128_QUIET_ZONE_MODULES, -CODE128_QUIET_ZONE_MODULES);
+  const stopPattern = widthsToModules(SYMBOL_WIDTHS[STOP]);
+  if (!body.endsWith(stopPattern)) throw new Error("Code 128 stop symbol is missing.");
+  const codewordModules = body.slice(0, -stopPattern.length);
+  if (codewordModules.length < 22 || codewordModules.length % 11 !== 0) {
+    throw new Error("Code 128 symbol has an invalid module length.");
+  }
+
+  const patterns = new Map<string, number>();
+  for (let codeword = 0; codeword < STOP; codeword += 1) {
+    patterns.set(widthsToModules(SYMBOL_WIDTHS[codeword]), codeword);
+  }
+  const codewords: number[] = [];
+  for (let offset = 0; offset < codewordModules.length; offset += 11) {
+    const codeword = patterns.get(codewordModules.slice(offset, offset + 11));
+    if (codeword === undefined) throw new Error("Code 128 contains an unknown symbol.");
+    codewords.push(codeword);
+  }
+  if (codewords[0] !== START_B) throw new Error("Code 128 is not a subset B symbol.");
+
+  const checksum = codewords.at(-1)!;
+  const dataCodewords = codewords.slice(1, -1);
+  const expectedChecksum = dataCodewords.reduce(
+    (total, codeword, index) => total + codeword * (index + 1),
+    START_B,
+  ) % 103;
+  if (checksum !== expectedChecksum) throw new Error("Code 128 checksum does not match.");
+  if (dataCodewords.some((codeword) => codeword > 94)) {
+    throw new Error("Code 128 contains a non-text subset B control symbol.");
+  }
+  return String.fromCharCode(...dataCodewords.map((codeword) => codeword + 32));
+}

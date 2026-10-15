@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import {
   Download,
   RotateCcw,
@@ -12,10 +12,9 @@ import {
   CheckSquare,
   Square,
   Building2,
-  Eye,
 } from "lucide-react";
 import { calculateAge } from "../../lib/report-utils";
-import { buildOptimizedPdf, type PdfPageToRender } from "../../lib/pdf-export";
+import { type PdfPageToRender } from "../../lib/pdf-export";
 import {
   deleteDocumentImage,
   getPatient,
@@ -29,6 +28,7 @@ import { PatientManagement } from "../../components/PatientManagement";
 import { AppSidebar } from "../../components/AppSidebar";
 import { PatientIdentitySummary } from "../../components/PatientIdentitySummary";
 import { PdfPreviewModal } from "../../components/PdfPreviewModal";
+import { PdfExportDialog } from "../../components/PdfExportDialog";
 import { UhidBarcode, UhidWithBarcode } from "../../components/UhidBarcode";
 import {
   ReusableStamp,
@@ -586,9 +586,8 @@ export default function Home() {
     | "meds"
     | "footer"
   >("patient");
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isPreviewGenerating, setIsPreviewGenerating] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState("");
+  const [pdfPreviewFileName, setPdfPreviewFileName] = useState("");
   const [isSavingPatient, setIsSavingPatient] = useState(false);
   const [isSavingStamps, setIsSavingStamps] = useState(false);
   const [isLoadingPatients, setIsLoadingPatients] = useState(false);
@@ -609,9 +608,6 @@ export default function Home() {
     fitness: true,
     opd_page_1: true,
   });
-  const [pdfSaveMode, setPdfSaveMode] = useState<"combined" | "separate">(
-    "combined",
-  );
   const [pendingLogoFiles, setPendingLogoFiles] = useState<
     Partial<Record<DocumentType, File>>
   >({});
@@ -2333,7 +2329,7 @@ export default function Home() {
     return clone;
   };
 
-  const selectedPdfPages = (): PdfPageToRender[] => {
+  const selectedPdfPages = useCallback((): PdfPageToRender[] => {
     const pages: PdfPageToRender[] = [];
     if (docType === "diagnostic" && selectedPages.diagnostic) {
       if (diagSheetRef.current) {
@@ -2387,7 +2383,7 @@ export default function Home() {
       });
     }
     return pages;
-  };
+  }, [docType, selectedPages]);
 
   const pdfFileName = () => {
     const documentName =
@@ -2401,61 +2397,6 @@ export default function Home() {
     const patientName =
       data.patientName.trim().replace(/\s+/g, "_") || "Patient";
     return `${documentName}_${patientName}.pdf`;
-  };
-
-  const generatePDF = async () => {
-    const pages = selectedPdfPages();
-    if (pages.length === 0) {
-      alert("Please select at least one page to save!");
-      return;
-    }
-
-    closePDFModal();
-    setIsGenerating(true);
-    try {
-      if (pdfSaveMode === "separate" && pages.length > 1) {
-        for (const page of pages) {
-          const pdf = await buildOptimizedPdf([page]);
-          pdf.save(
-            `${page.label.replace(/\s+/g, "_")}_${data.patientName.replace(/\s+/g, "_") || "Patient"}.pdf`,
-          );
-        }
-      } else {
-        const pdf = await buildOptimizedPdf(pages);
-        pdf.save(pdfFileName());
-      }
-    } catch (error) {
-      console.error("PDF Generation Error:", error);
-      alert(
-        `Error generating PDF: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const previewPDF = async () => {
-    const pages = selectedPdfPages();
-    if (pages.length === 0) {
-      alert("Please select at least one page to preview!");
-      return;
-    }
-
-    setIsPreviewGenerating(true);
-    try {
-      const pdf = await buildOptimizedPdf(pages);
-      const previewUrl = URL.createObjectURL(pdf.output("blob"));
-      if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
-      setPdfPreviewUrl(previewUrl);
-      closePDFModal();
-    } catch (error) {
-      console.error("PDF Preview Error:", error);
-      alert(
-        `Error previewing PDF: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
-    } finally {
-      setIsPreviewGenerating(false);
-    }
   };
 
   const closePDFPreview = () => {
@@ -5396,11 +5337,10 @@ export default function Home() {
           </button>
           <button
             onClick={openPDFModal}
-            disabled={isGenerating}
             className="flex items-center space-x-2 px-5 py-2.5 text-sm font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg shadow-lg shadow-emerald-500/10 disabled:opacity-50 transition-all cursor-pointer"
           >
             <Download className="w-4 h-4" />
-            <span>{isGenerating ? "Building PDF..." : "Generate PDF"}</span>
+            <span>Generate PDF</span>
           </button>
         </div>
       </header>
@@ -8572,18 +8512,18 @@ export default function Home() {
         )}
       </div>
 
-      {/* PDF Generation Modal */}
       {showPDFModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-950 border border-slate-800 rounded-xl shadow-2xl max-w-md w-full max-h-96 overflow-y-auto">
-            <div className="sticky top-0 bg-slate-950 border-b border-slate-800 p-4">
-              <h3 className="text-lg font-bold text-emerald-400 flex items-center gap-2">
-                <Download className="w-5 h-5" />
-                PDF Export Settings
-              </h3>
-            </div>
-
-            <div className="p-6 space-y-6">
+        <PdfExportDialog
+          getPages={selectedPdfPages}
+          fileName={pdfFileName()}
+          allowSeparate
+          onClose={closePDFModal}
+          onPreview={({ url, fileName }) => {
+            if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
+            setPdfPreviewUrl(url);
+            setPdfPreviewFileName(fileName);
+          }}
+        >
               {/* Page Selection */}
               <div className="space-y-3">
                 <h4 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
@@ -8681,84 +8621,13 @@ export default function Home() {
                 )}
               </div>
 
-              {/* Save Mode Selection */}
-              <div className="space-y-3 border-t border-slate-800 pt-4">
-                <h4 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
-                  Save Mode
-                </h4>
-                <div className="space-y-2">
-                  <label className="flex items-center gap-3 cursor-pointer hover:bg-slate-900/50 p-2 rounded transition-colors">
-                    <input
-                      type="radio"
-                      name="saveMode"
-                      value="combined"
-                      checked={pdfSaveMode === "combined"}
-                      onChange={(e) =>
-                        setPdfSaveMode(
-                          e.target.value as "combined" | "separate",
-                        )
-                      }
-                      className="w-4 h-4 accent-emerald-500"
-                    />
-                    <span className="text-sm text-slate-300">
-                      Combined (All pages in one PDF)
-                    </span>
-                  </label>
-                  <label className="flex items-center gap-3 cursor-pointer hover:bg-slate-900/50 p-2 rounded transition-colors">
-                    <input
-                      type="radio"
-                      name="saveMode"
-                      value="separate"
-                      checked={pdfSaveMode === "separate"}
-                      onChange={(e) =>
-                        setPdfSaveMode(
-                          e.target.value as "combined" | "separate",
-                        )
-                      }
-                      className="w-4 h-4 accent-emerald-500"
-                    />
-                    <span className="text-sm text-slate-300">
-                      Separate (Each page as individual PDF)
-                    </span>
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            {/* Modal Actions */}
-            <div className="sticky bottom-0 bg-slate-950 border-t border-slate-800 p-4 flex gap-3">
-              <button
-                onClick={closePDFModal}
-                className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void previewPDF()}
-                disabled={isPreviewGenerating || isGenerating}
-                className="flex-1 px-4 py-2 bg-sky-600 hover:bg-sky-500 disabled:bg-sky-600/50 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
-              >
-                <Eye className="w-4 h-4" />
-                {isPreviewGenerating ? "Building View..." : "View PDF"}
-              </button>
-              <button
-                onClick={() => void generatePDF()}
-                disabled={isGenerating || isPreviewGenerating}
-                className="flex-1 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 disabled:bg-emerald-500/50 text-slate-950 font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
-              >
-                <Download className="w-4 h-4" />
-                {isGenerating ? "Generating..." : "Generate PDF"}
-              </button>
-            </div>
-          </div>
-        </div>
+        </PdfExportDialog>
       )}
 
       {pdfPreviewUrl && (
         <PdfPreviewModal
           url={pdfPreviewUrl}
-          fileName={pdfFileName()}
+          fileName={pdfPreviewFileName}
           onClose={closePDFPreview}
         />
       )}

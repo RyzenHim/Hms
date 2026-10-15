@@ -1,6 +1,5 @@
-import type { WifiBillData, WifiBillTotals } from "../types/wifi-bill";
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+import type { WifiBillData, WifiInvoice } from "../types/wifi-bill.ts";
+import { formatBillDate, formatPlainAmount } from "./wifi-bill.ts";
 const REFERENCE_OPERATOR_PATTERN = /^(?:(?:bharti\s+)?airtel|bharti\s+hexacom)(?:\s+(?:limited|ltd\.?))?$/i;
 
 function usesReferenceOperator(providerName: string): boolean {
@@ -44,41 +43,35 @@ function validSingleLine(value: string, maximum: number): boolean {
   return Boolean(trimmed) && trimmed.length <= maximum && !/[\r\n]/.test(trimmed);
 }
 
-function invoiceDate(value: string): string {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return "";
-  const date = new Date(`${value}T00:00:00.000Z`);
-  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) return "";
-  return `${value.slice(8)}-${MONTHS[date.getUTCMonth()]}-${value.slice(2, 4)}`;
-}
-
 /** Protect the reference's comma-delimited metadata without changing ordinary IDs. */
 function metadataValue(value: string): string {
   return value.trim().replace(/[%,=\r\n]/g, (character) => encodeURIComponent(character));
 }
 
 /** Explain why the live payment QR is unavailable instead of failing silently. */
-export function getWifiPaymentQrIssue(data: WifiBillData, totals: WifiBillTotals): string {
-  if (!data.paymentUpiId.trim()) {
-    return usesReferenceOperator(data.providerName) && !data.accountNumber.trim()
+export function getWifiPaymentQrIssue(invoice: WifiInvoice): string {
+  const { calculations: totals, identifiers, payment } = invoice;
+  if (!payment.upiId) {
+    return usesReferenceOperator(invoice.companyProfile.legalName) && !identifiers.accountNumber
       ? "Enter the Airtel account number to create its payment UPI ID and QR code."
       : "Enter the operator's payment UPI ID to generate the QR code.";
   }
-  if (!isValidUpiId(data.paymentUpiId)) {
+  if (!isValidUpiId(payment.upiId)) {
     return "Enter a valid payment UPI ID in the format account@provider.";
   }
-  if (!validSingleLine(data.paymentPayeeName, 70)) {
+  if (!validSingleLine(payment.payeeName, 70)) {
     return "Enter a payment recipient name using 70 characters or fewer.";
   }
-  if (!/^\d{4}$/.test(data.paymentMerchantCode.trim())) {
+  if (!/^\d{4}$/.test(payment.merchantCode)) {
     return "Enter the 4-digit merchant category code used by the payment provider.";
   }
-  if (!validSingleLine(data.paymentTransactionNote, 80)) {
+  if (!validSingleLine(payment.transactionNote, 80)) {
     return "Enter a single-line UPI payment description using 80 characters or fewer.";
   }
-  if (!validSingleLine(data.invoiceNumber, 35)) {
+  if (!validSingleLine(identifiers.invoiceNumber, 35)) {
     return "Enter an invoice number using 35 characters or fewer to generate the payment QR.";
   }
-  if (!invoiceDate(data.billDate)) {
+  if (formatBillDate(identifiers.billDate) === "—") {
     return "Select a valid bill date to generate the payment QR.";
   }
   if (!Number.isFinite(totals.totalPayable) || totals.totalPayable <= 0) {
@@ -94,44 +87,71 @@ export function getWifiPaymentQrIssue(data: WifiBillData, totals: WifiBillTotals
  * amounts. The PDF's bank account and IFSC fields are empty; no CESS is charged.
  * This is a payment QR with invoice metadata, not a signed GST e-invoice QR.
  */
-export function buildWifiPaymentQrPayload(data: WifiBillData, totals: WifiBillTotals): string {
-  if (getWifiPaymentQrIssue(data, totals)) return "";
-  const billDate = invoiceDate(data.billDate);
-  const payeeName = data.paymentPayeeName.trim();
-  const merchantCode = data.paymentMerchantCode.trim();
-  const transactionNote = data.paymentTransactionNote.trim();
+export function buildWifiPaymentQrPayload(invoice: WifiInvoice): string {
+  if (getWifiPaymentQrIssue(invoice)) return "";
+  const { companyProfile, calculations: totals, identifiers, payment, plan } = invoice;
+  const billDate = formatBillDate(identifiers.billDate);
 
   const invoiceMetadata = [
     "000000",
-    `InvNo=${metadataValue(data.invoiceNumber)}`,
+    `InvNo=${metadataValue(identifiers.invoiceNumber)}`,
+    `AccountNo=${metadataValue(identifiers.accountNumber)}`,
+    `PaymentReference=${metadataValue(identifiers.paymentReference)}`,
     `InvoiceBilldate=${billDate}`,
     `ItemCount=${totals.otherChargesBeforeTax > 0 ? 2 : 1}`,
-    `HSN/SACCode=${metadataValue(data.hsnCode)}`,
-    `SellerGST=${metadataValue(data.providerGstin)}`,
+    `HSN/SACCode=${metadataValue(plan.hsnSacCode)}`,
+    `SellerGST=${metadataValue(companyProfile.gstin)}`,
     "Payee Bank AcctNo=",
     "IFSC_CODE=",
-    `Tot_GST=${totals.gstTotal.toFixed(2)}`,
-    `CGST=${totals.cgst.toFixed(2)}`,
-    `SGST=${totals.sgst.toFixed(2)}`,
-    `IGST=${totals.igst.toFixed(2)}`,
+    `Tot_GST=${formatPlainAmount(totals.gstTotal)}`,
+    `CGST=${formatPlainAmount(totals.cgst)}`,
+    `SGST=${formatPlainAmount(totals.sgst)}`,
+    `IGST=${formatPlainAmount(totals.igst)}`,
     "CESS=0.00",
-    `TotalInvAmt=${totals.totalCurrentCharges.toFixed(2)}`,
+    `TotalInvAmt=${formatPlainAmount(totals.totalCurrentCharges)}`,
   ].join(",");
 
   const parameters = new URLSearchParams({
-    pa: data.paymentUpiId.trim(),
-    pn: payeeName,
-    mc: merchantCode,
-    tr: data.invoiceNumber.trim(),
-    tn: transactionNote,
+    pa: payment.upiId,
+    pn: payment.payeeName,
+    mc: payment.merchantCode,
+    tr: identifiers.paymentReference,
+    tn: payment.transactionNote,
     cu: "INR",
     // NPCI treats `am` in a dynamic merchant QR as the non-editable amount.
     // Matching `mam` prevents a payment app from accepting a lower amount.
-    am: totals.totalPayable.toFixed(2),
-    mam: totals.totalPayable.toFixed(2),
+    am: formatPlainAmount(totals.totalPayable),
+    mam: formatPlainAmount(totals.totalPayable),
     mode: "01",
     purpose: "00",
     orgId: invoiceMetadata,
   });
   return `upi://pay?${parameters.toString()}`;
+}
+
+export interface ParsedWifiPaymentQr {
+  parameters: URLSearchParams;
+  organization: string;
+  metadata: Readonly<Record<string, string>>;
+}
+
+/** Parse the exact data a scanner receives, rejecting duplicate keys. */
+export function parseWifiPaymentQrPayload(payload: string): ParsedWifiPaymentQr {
+  const url = new URL(payload);
+  if (url.protocol !== "upi:" || url.hostname !== "pay") throw new Error("Invalid UPI payment payload.");
+  const parameters = url.searchParams;
+  for (const key of parameters.keys()) {
+    if (parameters.getAll(key).length !== 1) throw new Error(`Duplicate QR parameter: ${key}.`);
+  }
+  const rawMetadata = parameters.get("orgId") || "";
+  const [organization, ...entries] = rawMetadata.split(",");
+  const metadata: Record<string, string> = {};
+  for (const entry of entries) {
+    const delimiter = entry.indexOf("=");
+    if (delimiter < 0) throw new Error("Invalid invoice metadata entry.");
+    const key = entry.slice(0, delimiter);
+    if (Object.hasOwn(metadata, key)) throw new Error(`Duplicate QR metadata: ${key}.`);
+    metadata[key] = decodeURIComponent(entry.slice(delimiter + 1));
+  }
+  return { parameters, organization, metadata: Object.freeze(metadata) };
 }

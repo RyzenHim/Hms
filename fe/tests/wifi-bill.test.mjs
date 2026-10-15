@@ -22,7 +22,10 @@ function bill(overrides = {}) {
     ...createDefaultWifiBill(new Date(2026, 8, 22)),
     providerAddress: "Provider address",
     customerName: "Example Customer",
-    customerAddress: "Customer address",
+    customerAddressLine1: "42 Example Road",
+    customerCity: "Jaipur",
+    customerState: "Rajasthan",
+    customerPostalCode: "302020",
     customerPhone: "+91 90000 00000",
     accountNumber: "ACCOUNT-1",
     invoiceNumber: "INVOICE-1",
@@ -59,12 +62,12 @@ test("inclusive amounts extract GST without charging it twice", () => {
 test("discounts precede tax and payment adjustments follow tax", () => {
   const result = calculateWifiBill(bill({
     rentalAmount: "1000", discount: "100", otherCharges: "50",
-    previousBalance: "200", paymentReceived: "100", paymentCoupon: "10", credits: "20",
+    previousBalance: "200", paymentReceived: "-100", paymentCoupon: "-10", credits: "-20",
   }));
   assert.equal(result.taxableAmount, 950);
   assert.equal(result.gstTotal, 171);
   assert.equal(result.totalCurrentCharges, 1121);
-  assert.equal(result.paymentCoupon, 10);
+  assert.equal(result.paymentCoupon, -10);
   assert.equal(result.previousBalanceDue, 70);
   assert.equal(result.totalPayable, 1191);
   assert.equal(result.lateFee, 100);
@@ -103,7 +106,7 @@ test("inclusive line-item rounding conserves the taxable subtotal", () => {
 });
 
 test("payments above total due show credit and do not apply a late fee", () => {
-  const data = bill({ paymentReceived: "1200", lateFee: "50" });
+  const data = bill({ paymentReceived: "-1200", lateFee: "50" });
   assert.deepEqual(validateWifiBill(data), {});
   const result = calculateWifiBill(data);
   assert.equal(result.totalPayable, 0);
@@ -148,12 +151,12 @@ test("zero GST and blank optional adjustments are supported", () => {
   assert.equal(calculateWifiBill(data).totalPayable, 999);
 });
 
-test("three prior-month summary rows accept persisted monetary values", () => {
+test("prior-month summary rows accept persisted signed monetary values", () => {
   const data = bill({
-    history1PreviousDues: "1178.82", history1Payments: "1178.82",
+    history1PreviousDues: "1178.82", history1Payments: "-1178.82",
     history1PaymentCoupon: "0", history1Credits: "0", history1CurrentCharges: "1178.82",
-    history2PreviousDues: "900", history2Payments: "400.50",
-    history2PaymentCoupon: "25", history2Credits: "10", history2CurrentCharges: "999",
+    history2PreviousDues: "900", history2Payments: "-400.50",
+    history2PaymentCoupon: "-25", history2Credits: "-10", history2CurrentCharges: "999",
     history3PreviousDues: "", history3Payments: "", history3PaymentCoupon: "",
     history3Credits: "", history3CurrentCharges: "",
   });
@@ -200,28 +203,36 @@ test("defaults contain no sample personal details and require the issuer and cus
   assert.equal(data.accountNumber, "");
   assert.equal(data.paymentUpiId, "");
   const errors = validateWifiBill(data);
-  for (const field of ["providerAddress", "customerName", "customerAddress", "customerPhone", "accountNumber", "invoiceNumber"]) {
+  for (const field of ["providerAddress", "customerName", "customerAddressLine1", "customerCity", "customerState", "customerPostalCode", "customerPhone", "accountNumber", "invoiceNumber"]) {
     assert.ok(errors[field]);
   }
 });
 
-test("the visible August PDF prefills every source-backed editable field", () => {
+test("the visible August PDF prefills every source-backed displayed field", () => {
   const data = createReferenceWifiBill();
-  assert.equal(Object.keys(data).length, 87);
+  assert.equal(Object.keys(data).length, 89);
   assert.deepEqual(
     Object.entries(data).filter(([, value]) => value === "").map(([field]) => field),
-    ["issuerSignatureUrl", "issuerSignaturePublicId", "lateFee", "notes"],
+    [
+      "issuerSignatureUrl", "issuerSignaturePublicId",
+      "history2PreviousDues", "history2Payments", "history2PaymentCoupon", "history2Credits", "history2CurrentCharges",
+      "history3PreviousDues", "history3Payments", "history3PaymentCoupon", "history3Credits", "history3CurrentCharges",
+      "lateFee", "notes",
+    ],
   );
   assert.deepEqual(validateWifiBill(data), {});
   assert.deepEqual(
     {
       customerName: data.customerName,
+      customerAddressLine1: data.customerAddressLine1,
+      customerCity: data.customerCity,
+      customerState: data.customerState,
+      customerPostalCode: data.customerPostalCode,
       customerEmail: data.customerEmail,
       customerPhone: data.customerPhone,
       customerGstin: data.customerGstin,
       accountNumber: data.accountNumber,
       invoiceNumber: data.invoiceNumber,
-      billingBarcodeValue: data.billingBarcodeValue,
       wifiId: data.wifiId,
       fixedlineNumber: data.fixedlineNumber,
       billMonth: data.billMonth,
@@ -232,12 +243,15 @@ test("the visible August PDF prefills every source-backed editable field", () =>
     },
     {
       customerName: "Ms. Jyoti Kumari Singh",
+      customerAddressLine1: "Raj Manthan Rd, Sms Colony, Mansarovar",
+      customerCity: "Jaipur",
+      customerState: "Rajasthan",
+      customerPostalCode: "302020",
       customerEmail: "jyoti.k.singh009@gmail.com",
       customerPhone: "7061415974",
       customerGstin: ".",
       accountNumber: "20025842515",
       invoiceNumber: "HF2708I003089481",
-      billingBarcodeValue: "20025842515 404694138",
       wifiId: "014122815145_wifi",
       fixedlineNumber: "01414543702",
       billMonth: "2026-08",
@@ -251,16 +265,26 @@ test("the visible August PDF prefills every source-backed editable field", () =>
   assert.equal(data.paymentInstructions.length, 242);
   assert.equal(data.paymentUpiId, "20025842515.FL@mairtel");
   assert.equal(data.paymentMethod, "Payment via Third Party BBPS (Digital-APBL)");
-  assert.equal(data.planName, "999 WiFi_100_Mbps");
-  assert.equal(data.hsnCode, "998422");
+  assert.equal(data.planDisplayName, "999 WiFi_100_Mbps");
+  assert.equal(data.hsnSacCode, "998412");
+  assert.equal(data.hsnServiceDescription, "Fixed Telephony Service");
   assert.match(data.tariffAirtelMobile, /\|\s+\|/);
-  for (const offset of [1, 2, 3]) {
-    assert.equal(data[`history${offset}PreviousDues`], "1178.82");
-    assert.equal(data[`history${offset}Payments`], "1178.82");
-    assert.equal(data[`history${offset}PaymentCoupon`], "0");
-    assert.equal(data[`history${offset}Credits`], "0");
-    assert.equal(data[`history${offset}CurrentCharges`], "1178.82");
+  const storedHistory = [
+    { previous: "999", payment: "-999", current: "1178.82" },
+    { previous: "", payment: "", current: "" },
+    { previous: "", payment: "", current: "" },
+  ];
+  for (const [index, row] of storedHistory.entries()) {
+    const offset = index + 1;
+    assert.equal(data[`history${offset}PreviousDues`], row.previous);
+    assert.equal(data[`history${offset}Payments`], row.payment);
+    assert.equal(data[`history${offset}PaymentCoupon`], offset === 1 ? "0" : "");
+    assert.equal(data[`history${offset}Credits`], offset === 1 ? "0" : "");
+    assert.equal(data[`history${offset}CurrentCharges`], row.current);
   }
+  assert.equal(data.previousBalance, "999");
+  assert.equal(data.paymentReceived, "-999");
+  assert.equal(data.paymentDate, "2026-07-15");
   const totals = calculateWifiBill(data);
   assert.equal(totals.gstTotal, 179.82);
   assert.equal(totals.totalPayable, 1178.82);
@@ -325,10 +349,16 @@ test("custom signatures require a complete managed Cloudinary reference", () => 
 });
 
 test("invoice and account identifiers remain Code 128B encodable", () => {
-  assert.deepEqual(validateWifiBill(bill({ accountNumber: "20025842515", invoiceNumber: "HF2708I003089481", billingBarcodeValue: "20025842515 404694138" })), {});
+  assert.deepEqual(validateWifiBill(bill({ accountNumber: "20025842515", invoiceNumber: "HF2708I003089481" })), {});
   assert.match(validateWifiBill(bill({ accountNumber: "खाता-1" })).accountNumber, /barcode/);
   assert.match(validateWifiBill(bill({ invoiceNumber: "INV\t01" })).invoiceNumber, /barcode/);
-  assert.match(validateWifiBill(bill({ billingBarcodeValue: "खाता-1" })).billingBarcodeValue, /barcode/);
+});
+
+test("structured address and service classification reject malformed values", () => {
+  assert.ok(validateWifiBill(bill({ customerPostalCode: "30202" })).customerPostalCode);
+  assert.ok(validateWifiBill(bill({ customerStateCode: "8" })).customerStateCode);
+  assert.ok(validateWifiBill(bill({ hsnSacCode: "9984122" })).hsnSacCode);
+  assert.deepEqual(validateWifiBill(bill({ customerStateCode: "08", hsnSacCode: "998412" })), {});
 });
 
 test("document limits reject oversized fields and accept the maximum supported amount", () => {

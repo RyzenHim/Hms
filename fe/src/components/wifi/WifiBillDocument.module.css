@@ -1,8 +1,12 @@
 .document {
+  --bill-text-xs: 8px;
+  --bill-text-sm: 10px;
+  --bill-text-body: 11px;
+  --bill-text-title: 14px;
   width: 794px;
   color: #111111;
   font-family: Arial, Helvetica, sans-serif;
-  font-size: 11px;
+  font-size: var(--bill-text-body);
   line-height: 1.5;
   text-align: left;
 }
@@ -37,7 +41,7 @@
 .header .redHeading { color: #ed2028; font-size: 19px; max-width: 510px; padding-top: 2px; }
 .provider { color: #ed2028; font-weight: 700; font-size: 23px; line-height: 1.15; max-width: 182px; overflow-wrap: anywhere; text-align: right; }
 .providerLong { font-size: 16px; }
-.providerLogo { display: block; width: 115.3px; height: 52.8px; object-fit: fill; object-position: right center; }
+.providerLogo { display: block; width: 115.3px; height: 52.8px; object-fit: contain; object-position: right center; }
 .detailProviderLogo { width: 76.9px; height: 25px; }
 .header > .provider { flex: 0 0 auto; }
 .statementOverview { display: grid; grid-template-columns: 1.08fr 1fr; gap: 20px; min-height: 214px; margin-bottom: 18px; }
@@ -85,15 +89,21 @@
 .table thead th { border-bottom: 1px solid #111111; font-weight: 700; padding-top: 1px; padding-bottom: 9px; }
 .table th { font-weight: 700; }
 .table .money { text-align: right; white-space: nowrap; }
+.money, .field > strong, .balanceStrip strong, .payableHeader strong, .accountLabel, .serviceIds, .footer {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
 .table .center { text-align: center; }
 .table .regular { font-weight: 400; }
 .rule > * { border-top: 1px solid #777777; }
 .totalRow > * { border-top: 1px solid #111111; border-bottom: 1px solid #111111; font-weight: 700; }
 .table .grandTotal > * { border-top: 1px solid #ed2028; border-bottom: 1px solid #ed2028; font-size: 15px; padding-top: 7px; padding-bottom: 7px; font-weight: 700; }
+.table .grandTotal th { text-transform: uppercase; }
 .amountWords { font-weight: 700; padding-top: 7px; font-size: 10.5px; }
 .gridTable { font-size: 9px; text-align: center; }
 .gridTable th, .gridTable td { border: 1px solid #666666; padding: 8px 4px !important; text-align: center; overflow-wrap: normal; }
 .gridTable thead th { font-weight: 700; }
+.gridTable tbody td { text-align: right; padding-right: 6px !important; }
 .caption { color: #666666; font-size: 10px; line-height: 1.4; margin-top: 6px !important; overflow-wrap: anywhere; }
 .footer { position: absolute; left: 36px; right: 36px; bottom: 22px; display: flex; justify-content: space-between; gap: 20px; font-size: 9px; color: #444444; }
 .footer span:first-child { overflow-wrap: anywhere; max-width: 80%; }
@@ -146,7 +156,7 @@
 .pageTwoPanel > div:last-child strong { display: block; color: #ed2028; font-size: 20px; margin-bottom: 8px; }
 .pageTwoPanel > div:last-child p { font-size: 12px; max-width: 430px; }
 .pageTwoBanner { display: block; width: 100%; height: 164px; margin-top: 16px; object-fit: fill; }
-.summaryDisclaimer { margin-top: auto !important; padding-top: 12px; border-top: 1px dashed #ed2028; font-size: 10px; }
+.summaryDisclaimer { margin-top: 16px !important; padding-top: 12px; border-top: 1px dashed #ed2028; font-size: 10px; }
 .billingColumns { display: grid; grid-template-columns: 1fr 1.08fr; gap: 22px; min-height: 126px; padding-top: 18px; padding-bottom: 18px; }
 .barcodePanel { padding-left: 18px; border-left: 1px solid #777777; }
 .billingBarcode { width: 64%; min-width: 230px; max-width: 340px; margin-bottom: 8px; }

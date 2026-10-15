@@ -8,7 +8,9 @@ export interface WifiCustomerSummary {
 }
 
 export interface WifiCustomer extends WifiCustomerSummary {
-  address: string;
+  addressLine1: string;
+  city: string;
+  postalCode: string;
   email: string;
   phone: string;
   gstin: string;
@@ -16,6 +18,7 @@ export interface WifiCustomer extends WifiCustomerSummary {
   stateCode: string;
   wifiId: string;
   fixedlineNumber: string;
+  paymentUpiId: string;
   createdAt: string;
 }
 
@@ -31,6 +34,13 @@ export interface WifiSavedBillSummary {
 export interface WifiSavedBill extends Omit<WifiSavedBillSummary, "invoiceNumber" | "billMonth"> {
   data: WifiBillData;
   createdAt: string;
+}
+
+export interface WifiBillingContext {
+  customer: WifiCustomer;
+  selectedBill: WifiSavedBill | null;
+  previousBill: WifiSavedBill | null;
+  monthlyRecords: WifiSavedBill[];
 }
 
 export interface WifiSignatureUpload {
@@ -68,6 +78,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const listWifiCustomers = () => request<{ customers: WifiCustomerSummary[] }>("/customers");
 export const getWifiCustomer = (id: string) => request<{ customer: WifiCustomer; bills: WifiSavedBillSummary[] }>(`/customers/${encodeURIComponent(id)}`);
 export const getWifiSavedBill = (id: string) => request<{ bill: WifiSavedBill }>(`/bills/${encodeURIComponent(id)}`);
+export const getWifiBillingContext = (customerId: string, billMonth: string) =>
+  request<WifiBillingContext>(`/customers/${encodeURIComponent(customerId)}/billing-context/${encodeURIComponent(billMonth)}`);
 
 export async function uploadWifiSignature(dataUrl: string): Promise<WifiSignatureUpload> {
   const response = await fetch(`${apiBaseUrl()}/api/uploads/images`, {
@@ -94,7 +106,7 @@ export const saveWifiDraft = (data: WifiBillData, customerId: string | null, exi
 
 const numericFields = new Set([
   "connections", "rentalAmount", "discount", "otherCharges", "gstRate",
-  "previousBalance", "paymentReceived", "paymentCoupon", "credits",
+  "previousBalance", "paymentReceived", "paymentCoupon", "credits", "statementCurrentCharges",
   "creditLimit", "securityDeposit", "lateFee",
   "history1PreviousDues", "history1Payments", "history1PaymentCoupon", "history1Credits", "history1CurrentCharges",
   "history2PreviousDues", "history2Payments", "history2PaymentCoupon", "history2Credits", "history2CurrentCharges",
@@ -105,14 +117,16 @@ const numericFields = new Set([
 export function wifiBillFingerprint(data: WifiBillData): string {
   return JSON.stringify(Object.entries(data).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => {
     const trimmed = value.trim();
-    return [key, numericFields.has(key) && /^\d+(?:\.\d{1,2})?$/.test(trimmed) ? String(Number(trimmed)) : trimmed];
+    return [key, numericFields.has(key) && /^-?\d+(?:\.\d{1,2})?$/.test(trimmed) ? String(Number(trimmed)) : trimmed];
   }));
 }
 
 export function wifiCustomerFields(customer: WifiCustomer): Partial<WifiBillData> {
   return {
     customerName: customer.name,
-    customerAddress: customer.address,
+    customerAddressLine1: customer.addressLine1,
+    customerCity: customer.city,
+    customerPostalCode: customer.postalCode,
     customerEmail: customer.email,
     customerPhone: customer.phone,
     customerGstin: customer.gstin,
@@ -121,5 +135,6 @@ export function wifiCustomerFields(customer: WifiCustomer): Partial<WifiBillData
     accountNumber: customer.accountNumber,
     wifiId: customer.wifiId,
     fixedlineNumber: customer.fixedlineNumber,
+    paymentUpiId: customer.paymentUpiId || "",
   };
 }
