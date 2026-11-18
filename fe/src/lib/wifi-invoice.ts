@@ -41,7 +41,7 @@ function optionalPaise(value: string): number | null {
 
 /**
  * Resolve the editable draft into the one immutable view model used by the
- * document, machine codes, validation and PDF metadata.
+ * document, machine codes, validation and PDF output.
  */
 export function createWifiInvoice(
   data: WifiBillData,

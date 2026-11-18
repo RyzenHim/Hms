@@ -26,7 +26,7 @@ test("producer replacement preserves byte length and ignores unrelated metadata"
   );
 });
 
-test("vector bill contains four pages, embedded fonts and billing metadata", async () => {
+test("vector bill contains four pages and excludes bill details from document properties", async () => {
   const font = await readFile(new URL("../public/wifi/Geist-Regular.ttf", import.meta.url));
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input) => {
@@ -38,14 +38,17 @@ test("vector bill contains four pages, embedded fonts and billing metadata", asy
 
   try {
     const invoice = createWifiInvoice(createReferenceWifiBill());
-    const pdf = await buildVectorWifiBillPdf(invoice, {}, new Date("2026-08-06T06:30:00.000Z"));
+    const pdf = await buildVectorWifiBillPdf(invoice, {});
     assert.equal(pdf.getNumberOfPages(), 4);
 
     const bytes = serializeVectorWifiBillPdf(pdf);
     const source = Buffer.from(bytes).toString("latin1");
     assert.match(source, /\/Producer \(HMS Billing\)/);
-    assert.match(source, /\/Creator \(HMS WiFi Billing\)/);
-    assert.match(source, /\/CreationDate \(D:20260806\d{6}[+-]\d{2}'\d{2}'\)/);
+    const producerIndex = source.indexOf("/Producer (HMS Billing)");
+    const infoStart = source.lastIndexOf("<<", producerIndex);
+    const infoEnd = source.indexOf(">>", producerIndex);
+    const documentInfo = source.slice(infoStart, infoEnd + 2);
+    assert.doesNotMatch(documentInfo, /\/(?:Title|Subject|Author|Creator|Keywords)\b/);
     assert.match(source, /\/Type \/Font/);
     assert.ok(bytes.length > 10_000);
   } finally {

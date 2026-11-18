@@ -965,15 +965,6 @@ function drawPageFour(pdf: JsPDF, invoice: WifiInvoice, assets: WifiVectorPdfAss
   drawFooter(pdf, 4, identifiers.invoiceNumber);
 }
 
-function validExportDate(value: Date): Date {
-  return value instanceof Date && Number.isFinite(value.getTime()) ? value : new Date();
-}
-
-function utcPdfDate(value: Date): string {
-  const part = (number: number) => String(number).padStart(2, "0");
-  return `D:${value.getUTCFullYear()}${part(value.getUTCMonth() + 1)}${part(value.getUTCDate())}${part(value.getUTCHours())}${part(value.getUTCMinutes())}${part(value.getUTCSeconds())}+00'00'`;
-}
-
 /**
  * Generate four A4 pages with selectable text and vector rules, tables and
  * Code 128 bars. Only supplied artwork and QR assets remain raster images.
@@ -981,7 +972,6 @@ function utcPdfDate(value: Date): string {
 export async function buildVectorWifiBillPdf(
   invoice: WifiInvoice,
   assets: WifiVectorPdfAssets,
-  exportedAt: Date = new Date(),
 ): Promise<JsPDF> {
   const { jsPDF } = await import("jspdf");
   const pdf = new jsPDF({
@@ -994,16 +984,6 @@ export async function buildVectorWifiBillPdf(
   });
   await registerPdfFont(pdf);
 
-  const generatedAt = validExportDate(exportedAt);
-  const { companyProfile, identifiers, plan } = invoice;
-  pdf.setProperties({
-    title: `Wi-Fi invoice ${identifiers.invoiceNumber} - ${formatBillMonth(identifiers.billMonth)}`,
-    subject: `Account ${identifiers.accountNumber}; HSN / SAC ${plan.hsnSacCode}; period ${identifiers.periodStart} to ${identifiers.periodEnd}`,
-    author: companyProfile.legalName,
-    creator: "HMS WiFi Billing",
-    keywords: `Wi-Fi, invoice, ${identifiers.invoiceNumber}, ${identifiers.accountNumber}, ${plan.hsnSacCode}`,
-  });
-  pdf.setCreationDate(utcPdfDate(generatedAt));
   pdf.setLanguage("en");
 
   drawPageOne(pdf, invoice, assets);

@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const mongoose = require("mongoose");
 const express = require("express");
 const { cloudinary, isCloudinaryConfigured } = require("./config/cloudinary");
+const { createCorsMiddleware } = require("./config/cors");
 const Patient = require("./models/Patient");
 const StampConfiguration = require("./models/StampConfiguration");
 const { createWifiOperatorRouter } = require("./routes/wifi-operator");
@@ -11,16 +12,8 @@ const app = express();
 const port = process.env.PORT || 8080;
 const db = process.env.DB;
 
+app.use(createCorsMiddleware());
 app.use(express.json({ limit: "15mb" }));
-
-// Allow browser requests from any origin.
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type");
-  if (req.method === "OPTIONS") return res.sendStatus(204);
-  next();
-});
 
 const hospitalFieldNames = [
   "hospitalName",

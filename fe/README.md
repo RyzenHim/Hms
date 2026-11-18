@@ -69,6 +69,10 @@ business removes Airtel branding.
 - `src/lib/api.ts`: shared Axios clients for the hospital and WiFi APIs. Set
   `NEXT_PUBLIC_API_URL` in the frontend environment to override the default
   `http://localhost:8080` backend origin.
+- Backend CORS is controlled by `CORS_ORIGINS` in the backend environment.
+  Supply a comma-separated list of frontend origins (for example,
+  `https://hms.example.com`, without paths); unset configuration allows only
+  localhost development origins. See [`be/.env.example`](../be/.env.example).
 - `src/types/wifi-bill.ts`: editable bill data and calculated totals.
 - `src/lib/wifi-bill.ts`: defaults, validation, dates, currency and tax calculations.
 - `src/lib/wifi-api.ts`: customer history, draft persistence, version/error handling.
