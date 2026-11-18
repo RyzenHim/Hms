@@ -1,4 +1,5 @@
 import type { PatientListItem, ReportData, Stamp } from "../types/report";
+import { apiErrorMessage, hospitalApi } from "./api.ts";
 
 export interface SavedPatient {
   _id: string;
@@ -8,24 +9,25 @@ export interface SavedPatient {
 
 type ApiResult<T> = T & { message?: string };
 
-const apiBaseUrl = () =>
-  (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080").replace(/\/$/, "");
-
-const readResponse = async <T>(response: Response): Promise<ApiResult<T>> => {
-  const result = (await response.json().catch(() => ({}))) as ApiResult<T>;
-  if (!response.ok) throw new Error(result.message || "The patient request failed.");
-  return result;
+const request = async <T>(action: () => Promise<{ data: ApiResult<T> }>) => {
+  try {
+    return (await action()).data;
+  } catch (error) {
+    throw new Error(apiErrorMessage(error, "The patient request failed."));
+  }
 };
 
 export const listPatients = async (): Promise<PatientListItem[]> => {
-  const response = await fetch(`${apiBaseUrl()}/api/patients`);
-  const result = await readResponse<{ patients?: PatientListItem[] }>(response);
+  const result = await request(() =>
+    hospitalApi.get<ApiResult<{ patients?: PatientListItem[] }>>("/patients"),
+  );
   return result.patients || [];
 };
 
 export const getPatient = async (patientId: string): Promise<SavedPatient> => {
-  const response = await fetch(`${apiBaseUrl()}/api/patients/${patientId}`);
-  const result = await readResponse<{ patient?: SavedPatient }>(response);
+  const result = await request(() =>
+    hospitalApi.get<ApiResult<{ patient?: SavedPatient }>>(`/patients/${patientId}`),
+  );
   if (!result.patient) throw new Error("Patient details were not returned.");
   return result.patient;
 };
@@ -34,13 +36,11 @@ export const uploadDocumentImage = async (
   dataUrl: string,
   assetType: string,
 ): Promise<{ url: string; publicId: string }> => {
-  const response = await fetch(`${apiBaseUrl()}/api/uploads/images`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ dataUrl, assetType }),
-  });
-  const result = await readResponse<{ url?: string; publicId?: string }>(
-    response,
+  const result = await request(() =>
+    hospitalApi.post<ApiResult<{ url?: string; publicId?: string }>>(
+      "/uploads/images",
+      { dataUrl, assetType },
+    ),
   );
   if (!result.url || !result.publicId) {
     throw new Error("Cloudinary did not return an image URL.");
@@ -57,12 +57,11 @@ export const deleteDocumentImage = async ({
   publicId?: string;
   patientId?: string | null;
 }): Promise<void> => {
-  const response = await fetch(`${apiBaseUrl()}/api/uploads/images`, {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ imageUrl, publicId, patientId }),
-  });
-  await readResponse<Record<string, never>>(response);
+  await request(() =>
+    hospitalApi.delete<ApiResult<Record<string, never>>>("/uploads/images", {
+      data: { imageUrl, publicId, patientId },
+    }),
+  );
 };
 
 export const savePatient = async (
@@ -70,22 +69,19 @@ export const savePatient = async (
   patientId: string | null,
 ): Promise<{ id: string; message: string }> => {
   const { dischargeSummaryStamps, ...reportDetails } = patientDetails;
-  const response = await fetch(
+  const payload = {
+    patientDetails: reportDetails,
+    stampConfiguration: { stamps: dischargeSummaryStamps },
+  };
+  const result = await request(() =>
     patientId
-      ? `${apiBaseUrl()}/api/patients/${patientId}`
-      : `${apiBaseUrl()}/api/patients`,
-    {
-      method: patientId ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        patientDetails: reportDetails,
-        stampConfiguration: { stamps: dischargeSummaryStamps },
-      }),
-    },
+      ? hospitalApi.put<ApiResult<{
+          patient?: { id?: string; _id?: string };
+        }>>(`/patients/${patientId}`, payload)
+      : hospitalApi.post<ApiResult<{
+          patient?: { id?: string; _id?: string };
+        }>>("/patients", payload),
   );
-  const result = await readResponse<{
-    patient?: { id?: string; _id?: string };
-  }>(response);
   const id = result.patient?.id || result.patient?._id || patientId;
   if (!id) throw new Error("The saved patient identifier was not returned.");
   return { id, message: result.message || "Patient details saved successfully." };
@@ -95,18 +91,12 @@ export const saveStampConfiguration = async (
   patientId: string,
   stamps: Stamp[],
 ): Promise<{ stamps: Stamp[]; message: string; placementCount: number }> => {
-  const response = await fetch(
-    `${apiBaseUrl()}/api/patients/${patientId}/stamps`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stamps }),
-    },
+  const result = await request(() =>
+    hospitalApi.put<ApiResult<{
+      stamps?: Stamp[];
+      placementCount?: number;
+    }>>(`/patients/${patientId}/stamps`, { stamps }),
   );
-  const result = await readResponse<{
-    stamps?: Stamp[];
-    placementCount?: number;
-  }>(response);
   if (!Array.isArray(result.stamps)) {
     throw new Error("Saved stamp settings were not returned.");
   }
@@ -118,8 +108,7 @@ export const saveStampConfiguration = async (
 };
 
 export const removePatient = async (patientId: string): Promise<void> => {
-  const response = await fetch(`${apiBaseUrl()}/api/patients/${patientId}`, {
-    method: "DELETE",
-  });
-  await readResponse<Record<string, never>>(response);
+  await request(() =>
+    hospitalApi.delete<ApiResult<Record<string, never>>>(`/patients/${patientId}`),
+  );
 };

@@ -1,4 +1,5 @@
 import type { WifiBillData, WifiBillErrors } from "../types/wifi-bill";
+import { apiErrorDetails, hospitalApi, wifiApi } from "./api.ts";
 
 export interface WifiCustomerSummary {
   id: string;
@@ -62,17 +63,19 @@ export class WifiApiError extends Error {
   }
 }
 
-const apiBaseUrl = () => (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080").replace(/\/$/, "");
-
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBaseUrl()}/api/wifi${path}`, {
-    ...options,
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    signal: AbortSignal.timeout(30_000),
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new WifiApiError(result.message || "Unable to access saved WiFi bills.", response.status, result.errors);
-  return result as T;
+async function request<T>(path: string, method: "GET" | "POST" | "PUT" = "GET", data?: unknown): Promise<T> {
+  try {
+    const response = await wifiApi.request<T>({ url: path, method, data });
+    return response.data;
+  } catch (error) {
+    const details = apiErrorDetails(error);
+    const body = details.data as { errors?: WifiBillErrors } | undefined;
+    throw new WifiApiError(
+      details.message || "Unable to access saved WiFi bills.",
+      details.status ?? 0,
+      body?.errors,
+    );
+  }
 }
 
 export const listWifiCustomers = () => request<{ customers: WifiCustomerSummary[] }>("/customers");
@@ -82,15 +85,19 @@ export const getWifiBillingContext = (customerId: string, billMonth: string) =>
   request<WifiBillingContext>(`/customers/${encodeURIComponent(customerId)}/billing-context/${encodeURIComponent(billMonth)}`);
 
 export async function uploadWifiSignature(dataUrl: string): Promise<WifiSignatureUpload> {
-  const response = await fetch(`${apiBaseUrl()}/api/uploads/images`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ dataUrl, assetType: "wifi-signature" }),
-    signal: AbortSignal.timeout(30_000),
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new WifiApiError(result.message || "Unable to upload the signature image.", response.status);
+  let result: Partial<WifiSignatureUpload>;
+  try {
+    result = (await hospitalApi.post<Partial<WifiSignatureUpload>>(
+      "/uploads/images",
+      { dataUrl, assetType: "wifi-signature" },
+      { timeout: 30_000 },
+    )).data;
+  } catch (error) {
+    const details = apiErrorDetails(error);
+    throw new WifiApiError(
+      details.message || "Unable to upload the signature image.",
+      details.status ?? 0,
+    );
   }
   if (!result.url || !result.publicId) {
     throw new WifiApiError("Cloud storage returned an incomplete signature reference.", 502);
@@ -99,10 +106,11 @@ export async function uploadWifiSignature(dataUrl: string): Promise<WifiSignatur
 }
 
 export const saveWifiDraft = (data: WifiBillData, customerId: string | null, existing: { id: string; version: number } | null, clientDraftId: string) =>
-  request<{ bill: WifiSavedBill; customer: WifiCustomer }>(existing ? `/bills/${encodeURIComponent(existing.id)}` : "/bills", {
-    method: existing ? "PUT" : "POST",
-    body: JSON.stringify(existing ? { data, version: existing.version } : { data, clientDraftId, ...(customerId ? { customerId } : {}) }),
-  });
+  request<{ bill: WifiSavedBill; customer: WifiCustomer }>(
+    existing ? `/bills/${encodeURIComponent(existing.id)}` : "/bills",
+    existing ? "PUT" : "POST",
+    existing ? { data, version: existing.version } : { data, clientDraftId, ...(customerId ? { customerId } : {}) },
+  );
 
 const numericFields = new Set([
   "connections", "rentalAmount", "discount", "otherCharges", "gstRate",

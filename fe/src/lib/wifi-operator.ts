@@ -1,3 +1,5 @@
+import { apiErrorMessage, wifiApi } from "./api.ts";
+
 export interface WifiOperator {
   id: string;
   name: string;
@@ -17,9 +19,6 @@ export const REFERENCE_AIRTEL_SIGNATURE_URL = "/wifi/airtel-signature.png";
 export const REFERENCE_AIRTEL_DETAIL_LOGO_URL = REFERENCE_AIRTEL_LOGO_URL;
 export const REFERENCE_AIRTEL_PAGE_TWO_BANNER_URL = "/wifi/airtel-page-two-banner.jpg";
 
-const apiBaseUrl = () =>
-  (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080").replace(/\/$/, "");
-
 export function usesReferenceOperator(providerName: string): boolean {
   return /^(?:(?:bharti\s+)?airtel|bharti\s+hexacom)(?:\s+(?:limited|ltd\.?))?$/i.test(providerName.trim());
 }
@@ -27,13 +26,15 @@ export function usesReferenceOperator(providerName: string): boolean {
 /** Only bundled operator artwork is uploaded; bill/customer data stays local. */
 export async function loadWifiOperator(): Promise<WifiOperator> {
   const request = async (method: "GET" | "POST") => {
-    const response = await fetch(`${apiBaseUrl()}/api/wifi/operator${method === "POST" ? "/logo" : ""}`, {
-      method,
-      signal: AbortSignal.timeout(30_000),
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.message || "Unable to load the operator logo.");
-    return result as WifiOperator;
+    try {
+      const path = method === "POST" ? "/operator/logo" : "/operator";
+      const response = method === "POST"
+        ? await wifiApi.post<WifiOperator>(path)
+        : await wifiApi.get<WifiOperator>(path);
+      return response.data;
+    } catch (error) {
+      throw new Error(apiErrorMessage(error, "Unable to load the operator logo."));
+    }
   };
   const existing = await request("GET");
   const operator = existing.logoUrl && existing.paymentLogoUrl && existing.signatureUrl
