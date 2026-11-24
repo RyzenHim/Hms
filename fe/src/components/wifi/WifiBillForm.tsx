@@ -104,7 +104,7 @@ const paymentFields: FieldDefinition[] = [
   { field: "previousBalance", label: "Last bill amount (₹)", type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, readOnly: true, hint: "Automatically matches the entered plan amount." },
   { field: "paymentReceived", label: "Last payment (₹)", type: "number", min: -WIFI_BILL_MAX_AMOUNT, max: 0, step: 0.01, readOnly: true, hint: "Automatically records one signed payment equal to the entered plan amount." },
   { field: "paymentCoupon", label: "Payment coupon (₹)", type: "number", min: -WIFI_BILL_MAX_AMOUNT, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, hint: "Enter coupons as negative values." },
-  { field: "paymentDate", label: "Payment date", type: "date" },
+  { field: "paymentDate", label: "Payment date", type: "date", required: true, readOnly: true, hint: "Calculated automatically as 31 days before the due date. For a November 16 due date, this is October 16." },
   { field: "paymentMethod", label: "Payment method", hint: "For example, UPI, card or bank transfer." },
   { field: "credits", label: "Credits / adjustments (₹)", type: "number", min: -WIFI_BILL_MAX_AMOUNT, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, hint: "Enter credits as negative values." },
   { field: "creditLimit", label: "Credit limit (₹)", type: "number", min: 0, max: WIFI_BILL_MAX_AMOUNT, step: 0.01, hint: "Informational account limit shown on the tax invoice." },

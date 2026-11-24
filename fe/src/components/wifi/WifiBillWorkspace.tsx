@@ -14,7 +14,9 @@ import {
   createReferenceWifiBill,
   formatMoney,
   getBillingDates,
+  paymentDateForDueDate,
   resolveWifiBillDates,
+  validateWifiPaymentDate,
   validateWifiBill,
   WIFI_INTERNET_SERVICE,
   REFERENCE_ACCOUNT_NUMBER,
@@ -141,6 +143,7 @@ function billFromContext(current: WifiBillData, context: WifiBillingContext, bil
       ...wifiCustomerFields(context.customer),
       monthMode: current.monthMode,
       ...getBillingDates(billMonth),
+      paymentDate: paymentDateForDueDate(getBillingDates(billMonth).dueDate),
       ...priorMonthHistory(context.previousBill),
     });
   }
@@ -152,15 +155,15 @@ function billFromContext(current: WifiBillData, context: WifiBillingContext, bil
     ...getBillingDates(billMonth),
     invoiceNumber: "",
     statementCurrentCharges: "",
-    paymentDate: previous?.dueDate || "",
-    paymentMethod: previous?.paymentMethod || "Payment received",
+    paymentDate: paymentDateForDueDate(getBillingDates(billMonth).dueDate),
+    paymentMethod: previous?.paymentMethod || "Payment via Third Party BBPS (Digital-APBL)",
     ...priorMonthHistory(context.previousBill),
   });
 }
 
 function createNewWifiBill(customer?: WifiCustomer, now: Date = new Date()): WifiBillData {
   const reference = createReferenceWifiBill();
-  if (!customer) return reference;
+  if (!customer) return prepareCanonicalBill(resolveWifiBillDates({ ...reference, paymentDate: "" }, now));
   const customerBill = resolveWifiBillDates({
     ...reference,
     ...clearedOlderHistory(),
@@ -169,7 +172,7 @@ function createNewWifiBill(customer?: WifiCustomer, now: Date = new Date()): Wif
     invoiceNumber: "",
     statementCurrentCharges: "",
     paymentDate: "",
-    paymentMethod: "",
+    paymentMethod: "Payment via Third Party BBPS (Digital-APBL)",
   }, now);
   return prepareCanonicalBill({ ...customerBill, paymentUpiId: syncWifiPaymentUpiId(customerBill, false) });
 }
@@ -181,7 +184,7 @@ function applyReferenceMonthContext(data: WifiBillData): WifiBillData {
     return {
       ...data,
       invoiceNumber: stored.invoiceNumber,
-      paymentDate: stored.paymentDate,
+      paymentDate: paymentDateForDueDate(data.dueDate),
       paymentMethod: stored.paymentMethod,
       statementCurrentCharges: stored.statementCurrentCharges,
       history1PreviousDues: stored.history1PreviousDues,
@@ -204,7 +207,7 @@ function applyReferenceMonthContext(data: WifiBillData): WifiBillData {
     return {
       ...data,
       invoiceNumber: "",
-      paymentDate: "",
+      paymentDate: paymentDateForDueDate(data.dueDate),
       paymentMethod: "",
       statementCurrentCharges: "",
       ...clearedOlderHistory(),
@@ -388,7 +391,7 @@ function WifiBillEditor() {
         setData(restored);
         if (context.selectedBill) {
           setSavedBill({ id: context.selectedBill.id, version: context.selectedBill.version });
-          setSavedSnapshot(wifiBillFingerprint(restored));
+          setSavedSnapshot(wifiBillFingerprint({ ...restored, paymentDate: context.selectedBill.data.paymentDate }));
           setLastSavedAt(context.selectedBill.updatedAt);
         } else {
           setSavedBill(null);
@@ -511,15 +514,28 @@ function WifiBillEditor() {
 
   const saveDraft = async () => {
     if (saveInProgress.current || exportInProgress.current || loadingBill || signatureUploading || signatureLoading) return;
+    setSaveError("");
     const snapshot = prepareCanonicalBill(resolveWifiBillDates(data));
     if (!snapshot.customerName.trim()) {
       setErrors({ customerName: "Enter a customer name to save this draft." });
       document.getElementById("wifi-customerName")?.focus();
       return;
     }
+    const paymentDateError = validateWifiPaymentDate(snapshot.paymentDate, snapshot.billMonth);
+    if (paymentDateError) {
+      setErrors({ paymentDate: paymentDateError });
+      setData(snapshot);
+      requestAnimationFrame(() => {
+        const field = document.getElementById("wifi-paymentDate");
+        const section = field?.closest("details");
+        if (section) section.open = true;
+        field?.focus();
+        field?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+      return;
+    }
     saveInProgress.current = true;
     setSaving(true);
-    setSaveError("");
     setSaveConflict(false);
     setErrors({});
     setData(snapshot);
@@ -562,10 +578,10 @@ function WifiBillEditor() {
       const { bill } = await getWifiSavedBill(id);
       if (!mounted.current) return;
       // Reopened bills retain their saved month even when the device month changes.
-      const restored = prepareCanonicalBill({ ...createDefaultWifiBill(), ...bill.data, monthMode: "custom" as const });
+      const restored = prepareCanonicalBill(resolveWifiBillDates({ ...createDefaultWifiBill(), ...bill.data, monthMode: "custom" as const }));
       paymentUpiOverridden.current = Boolean(restored.paymentUpiId.trim()) && !isDerivedAirtelPaymentUpiId(restored);
       setData(restored);
-      setSavedSnapshot(wifiBillFingerprint(restored));
+      setSavedSnapshot(wifiBillFingerprint({ ...restored, paymentDate: bill.data.paymentDate }));
       setSavedBill({ id: bill.id, version: bill.version });
       setCustomerId(bill.customerId);
       setLastSavedAt(bill.updatedAt);

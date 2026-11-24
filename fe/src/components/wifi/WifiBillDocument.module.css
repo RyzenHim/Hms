@@ -45,8 +45,16 @@
 .detailProviderLogo { width: 76.9px; height: 25px; }
 .header > .provider { flex: 0 0 auto; }
 .statementOverview { display: grid; grid-template-columns: 1.08fr 1fr; gap: 20px; min-height: 214px; margin-bottom: 18px; }
-.customer { overflow-wrap: anywhere; }
-.customer > strong { display: block; margin-bottom: 3px; font-size: 11.5px; }
+.customer {
+  overflow-wrap: anywhere;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: inherit;
+  font-weight: 400;
+  line-height: inherit;
+}
+.customer > strong { display: block; margin-bottom: 0; font-size: inherit; line-height: inherit; font-weight: 700; }
+.customer > p { font-size: inherit; line-height: inherit; font-weight: 400; color: inherit; }
+.customer > p > span { font-family: inherit; font-size: inherit; line-height: inherit; font-weight: 400; color: inherit; }
 .multiline { white-space: pre-line; overflow-wrap: anywhere; }
 .planSummary { margin-top: 18px; overflow-wrap: anywhere; }
 .planSummary strong { display: block; margin-bottom: 3px; }
@@ -103,6 +111,7 @@
 .gridTable { font-size: 9px; text-align: center; }
 .gridTable th, .gridTable td { border: 1px solid #666666; padding: 8px 4px !important; text-align: center; overflow-wrap: normal; }
 .gridTable thead th { font-weight: 700; }
+.gridTable tbody td { text-align: center !important; }
 .caption { color: #666666; font-size: 10px; line-height: 1.4; margin-top: 6px !important; overflow-wrap: anywhere; }
 .footer { position: absolute; left: 36px; right: 36px; bottom: 22px; display: flex; justify-content: space-between; gap: 20px; font-size: 9px; color: #444444; }
 .footer span:first-child { overflow-wrap: anywhere; max-width: 80%; }
@@ -221,7 +230,6 @@
 .compact .header h2 { font-size: 18px; }
 .compact .providerLong { font-size: 14px; max-width: 205px; }
 .compact .statementOverview { min-height: 200px; margin-bottom: 14px; }
-.compact .customer > strong { font-size: 10.5px; }
 .compact .planSummary { margin-top: 12px; }
 .compact .paymentInstructions { padding: 12px; }
 .compact .balanceStrip { padding: 14px 12px; margin-bottom: 12px; }

@@ -111,8 +111,8 @@ function Customer({ invoice, showGstin = true }: { invoice: WifiInvoice; showGst
     <div className={styles.customer}>
       <strong>{customer.name || "Customer name"}</strong>
       <p className={styles.multiline}>{customer.addressLines.length ? customer.addressLines.join("\n") : "Customer address"}</p>
-      <p>Email address: {customer.email || "-"}</p>
-      <p>Registered telephone number: {customer.phone || "-"}</p>
+      <p><span>Email address: </span><span>{customer.email || "-"}</span></p>
+      <p><span>Registered telephone number: </span><span>{customer.phone || "-"}</span></p>
       {showGstin && customer.gstin && <p>GSTIN: {customer.gstin}</p>}
     </div>
   );
@@ -202,8 +202,12 @@ export function WifiBillDocument({ invoice, onPageRef, paymentQrUrl, paymentLink
   const resolvedSignatureUrl = companyProfile.assets.signatureUrl || undefined;
   const resolvedDetailLogoUrl = companyProfile.assets.detailLogoUrl || resolvedLogoUrl;
   const period = `${formatBillDate(identifiers.periodStart)} to ${formatBillDate(identifiers.periodEnd)}`;
-  const paymentDate = data.paymentDate || identifiers.dueDate;
   const paymentDescription = data.paymentInstructions || "Please contact your service provider for payment instructions.";
+  const paymentMethodLabel = totals.paymentReceived === 0
+    ? "No payment recorded"
+    : !data.paymentMethod.trim() || data.paymentMethod.trim() === "Payment received"
+      ? "Payment via Third Party BBPS (Digital-APBL)"
+      : data.paymentMethod;
   const statementRow = invoice.statementRow;
   const netRental = totals.netRental;
   const hasLargeAmounts = Math.max(
@@ -339,7 +343,7 @@ export function WifiBillDocument({ invoice, onPageRef, paymentQrUrl, paymentLink
           <BillTable variant="payment">
             <thead><tr><th>Description</th><th>Date</th><th className={styles.money}>Amount paid</th></tr></thead>
             <tbody>
-              <tr><td>{totals.paymentReceived !== 0 ? data.paymentMethod || "Payment received" : "No payment recorded"}</td><td>{paymentDate ? formatBillDate(paymentDate) : "-"}</td><td className={styles.money}><DebitAmount amount={totals.totalPayable} /></td></tr>
+              <tr><td>{paymentMethodLabel}</td><td>{data.paymentDate ? formatBillDate(data.paymentDate) : "-"}</td><td className={styles.money}><DebitAmount amount={totals.totalPayable} /></td></tr>
               <tr className={styles.totalRow}><th colSpan={2}>Total</th><td className={styles.money}><DebitAmount amount={totals.totalPayable} /></td></tr>
             </tbody>
           </BillTable>
@@ -494,7 +498,7 @@ export function WifiBillDocument({ invoice, onPageRef, paymentQrUrl, paymentLink
             <colgroup><col style={{ width: "55%" }} /><col style={{ width: "18%" }} /><col style={{ width: "14%" }} /><col style={{ width: "13%" }} /></colgroup>
             <thead><tr><th>Description</th><th>Date</th><th className={styles.money}>Amount</th><th className={styles.money}>Total (₹)</th></tr></thead>
             <tbody>
-              <tr><td>{totals.paymentReceived !== 0 ? data.paymentMethod || "Payment received" : "No payment recorded"}</td><td>{paymentDate ? formatBillDate(paymentDate) : "-"}</td><td className={styles.money}><DebitAmount amount={totals.totalPayable} /></td><td className={styles.money}><DebitAmount amount={totals.totalPayable} /></td></tr>
+              <tr><td>{paymentMethodLabel}</td><td>{data.paymentDate ? formatBillDate(data.paymentDate) : "-"}</td><td className={styles.money}><DebitAmount amount={totals.totalPayable} /></td><td className={styles.money}><DebitAmount amount={totals.totalPayable} /></td></tr>
             </tbody>
           </BillTable>
         </section>

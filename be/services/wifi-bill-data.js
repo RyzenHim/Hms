@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
 // Keep the API shape and printable text limits in sync with fe/src/types/wifi-bill.ts
-// and fe/src/lib/wifi-bill.ts. Saving a draft does not require an issuable invoice.
+// and fe/src/lib/wifi-bill.ts. Saved drafts require the calculated payment date.
 const WIFI_BILL_MAX_AMOUNT = 9_999_999.99;
 const WIFI_SERVICE_CONFIGURATION = Object.freeze({
   hsnSacCode: "998412",
@@ -180,6 +180,13 @@ function validMonth(value) {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(value) && Number(value.slice(0, 4)) >= 1900;
 }
 
+function paymentDateForBillMonth(month) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const dueDate = new Date(Date.UTC(year, monthNumber - 1, 16));
+  dueDate.setUTCDate(dueDate.getUTCDate() - 31);
+  return dueDate.toISOString().slice(0, 10);
+}
+
 function validDecimal(value, field) {
   const pattern = WIFI_BILL_SIGNED_AMOUNT_FIELDS.includes(field)
     ? SIGNED_DECIMAL_PATTERN
@@ -295,6 +302,15 @@ function validateDraftData(input) {
     Boolean(data.issuerSignatureUrl.trim()) !== Boolean(data.issuerSignaturePublicId.trim())
   ) {
     errors.issuerSignatureUrl = "Upload the signature again so its cloud reference is complete.";
+  }
+  if (!data.paymentDate) {
+    errors.paymentDate = "Payment date is required.";
+  } else if (!errors.paymentDate) {
+    if (!validMonth(data.billMonth)) {
+      errors.paymentDate = "A valid billing month is required to validate the payment date.";
+    } else if (data.paymentDate !== paymentDateForBillMonth(data.billMonth)) {
+      errors.paymentDate = "Payment date must be 31 days before the bill due date.";
+    }
   }
   if (Object.keys(errors).length) throw invalidDraft(errors);
   return data;
@@ -416,7 +432,7 @@ function createWifiBillDataSchema() {
       definition[field] = {
         type: String,
         default: WIFI_BILL_DEFAULTS[field],
-        ...(field === "customerName" ? { required: true } : {}),
+        ...(["customerName", "paymentDate"].includes(field) ? { required: true } : {}),
         ...(WIFI_BILL_TEXT_LIMITS[field] ? { maxlength: WIFI_BILL_TEXT_LIMITS[field] } : {}),
         ...(WIFI_BILL_ENUMS[field] ? { enum: WIFI_BILL_ENUMS[field] } : {}),
         validate: { validator: (value) => !fieldError(field, value), message: `Invalid ${field}.` },

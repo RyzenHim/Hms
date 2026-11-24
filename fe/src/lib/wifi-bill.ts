@@ -150,10 +150,29 @@ export function getBillingDates(month: string) {
   };
 }
 
+export function paymentDateForDueDate(dueDate: string): string {
+  const date = parseDate(dueDate);
+  if (!date) return "";
+  date.setUTCDate(date.getUTCDate() - 31);
+  return date.toISOString().slice(0, 10);
+}
+
 function offsetBillMonth(month: string, offset: number): string {
   if (!isValidMonth(month)) return "";
   const [year, monthNumber] = month.split("-").map(Number);
   return new Date(Date.UTC(year, monthNumber - 1 + offset, 1)).toISOString().slice(0, 7);
+}
+
+export function validateWifiPaymentDate(paymentDate: string, billMonth: string): string | undefined {
+  if (!paymentDate) return "Enter the payment date.";
+  if (!parseDate(paymentDate)) return "Select a valid payment date.";
+  if (!isValidMonth(billMonth)) return "Select a valid billing month to validate the payment date.";
+
+  const expectedDate = paymentDateForDueDate(getBillingDates(billMonth).dueDate);
+  if (paymentDate !== expectedDate) {
+    return `Payment date is automatically set to ${formatBillDate(expectedDate)}, 31 days before the due date.`;
+  }
+  return undefined;
 }
 
 function storedPaise(value: number, label: string): number {
@@ -315,7 +334,12 @@ export const REFERENCE_WIFI_MONTHLY_RECORDS: readonly WifiStoredMonthlyRecord[] 
 /** Resolve from the user's local system clock, including immediately before export. */
 export function resolveWifiBillDates(data: WifiBillData, now: Date = new Date()): WifiBillData {
   const month = data.monthMode === "current" ? localIsoDate(now).slice(0, 7) : data.billMonth;
-  return { ...data, ...getBillingDates(month) };
+  const dates = getBillingDates(month);
+  return {
+    ...data,
+    ...dates,
+    paymentDate: paymentDateForDueDate(dates.dueDate),
+  };
 }
 
 export function createDefaultWifiBill(now: Date = new Date()): WifiBillData {
@@ -754,7 +778,8 @@ export function validateWifiBill(data: WifiBillData): WifiBillErrors {
   if (!errors.billDate && !errors.dueDate && data.dueDate < data.billDate) {
     errors.dueDate = "Due date must be on or after the bill date.";
   }
-  if (data.paymentDate && !parseDate(data.paymentDate)) errors.paymentDate = "Select a valid payment date.";
+  const paymentDateError = validateWifiPaymentDate(data.paymentDate, data.billMonth);
+  if (paymentDateError) errors.paymentDate = paymentDateError;
 
   if (!data.paymentUpiId.trim() || !/^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+$/.test(data.paymentUpiId.trim())) {
     errors.paymentUpiId = "Enter the operator's UPI ID for this account to generate the payment QR.";

@@ -137,6 +137,14 @@ function setFillColor(pdf: JsPDF, color: Rgb): void {
   pdf.setFillColor(color[0], color[1], color[2]);
 }
 
+function paymentDescription(amount: number, method: string): string {
+  if (amount === 0) return "No payment recorded";
+  const normalizedMethod = method.trim();
+  return !normalizedMethod || normalizedMethod === "Payment received"
+    ? "Payment via Third Party BBPS (Digital-APBL)"
+    : normalizedMethod;
+}
+
 function normalizedCell(value: string | PdfCell, defaultAlign: PdfAlignment): PdfCell {
   return typeof value === "string"
     ? { text: value, align: defaultAlign }
@@ -608,7 +616,6 @@ function drawPageOne(pdf: JsPDF, invoice: WifiInvoice, assets: WifiVectorPdfAsse
 
 function drawPageTwo(pdf: JsPDF, invoice: WifiInvoice, assets: WifiVectorPdfAssets): void {
   const { calculations: totals, companyProfile, identifiers, source } = invoice;
-  const paymentDate = source.paymentDate || identifiers.dueDate;
   drawHeader(pdf, "POSTPAID Wi-Fi MONTHLY STATEMENT", companyProfile.legalName, assets.logoDataUrl);
 
   setTextStyle(pdf, 10, true, RED);
@@ -618,8 +625,8 @@ function drawPageTwo(pdf: JsPDF, invoice: WifiInvoice, assets: WifiVectorPdfAsse
 
   const paymentRows: PdfTableRow[] = [{
     cells: [
-      totals.paymentReceived !== 0 ? source.paymentMethod || "Payment received" : "No payment recorded",
-      paymentDate ? formatBillDate(paymentDate) : "-",
+      paymentDescription(totals.paymentReceived, source.paymentMethod),
+      source.paymentDate ? formatBillDate(source.paymentDate) : "-",
       formatDebit(totals.totalPayable),
     ],
   }];
@@ -788,7 +795,6 @@ function drawLabeledParagraph(
 
 function drawPageFour(pdf: JsPDF, invoice: WifiInvoice, assets: WifiVectorPdfAssets): void {
   const { calculations: totals, companyProfile, customer, identifiers, plan, source } = invoice;
-  const paymentDate = source.paymentDate || identifiers.dueDate;
   if (!addImageSafe(pdf, assets.detailLogoDataUrl || assets.logoDataUrl, MARGIN_X, 6, 24, 9)) {
     setTextStyle(pdf, 9, true, RED);
     pdf.text(companyProfile.legalName || "Service provider", MARGIN_X, 14, { maxWidth: 90 });
@@ -865,8 +871,8 @@ function drawPageFour(pdf: JsPDF, invoice: WifiInvoice, assets: WifiVectorPdfAss
   pdf.text(WIFI_BILL_LABELS.paymentsAndRefunds, MARGIN_X, y + 5);
   const paymentRows: PdfTableRow[] = [{
     cells: [
-      totals.paymentReceived !== 0 ? source.paymentMethod || "Payment received" : "No payment recorded",
-      paymentDate ? formatBillDate(paymentDate) : "-",
+      paymentDescription(totals.paymentReceived, source.paymentMethod),
+      source.paymentDate ? formatBillDate(source.paymentDate) : "-",
       formatDebit(totals.totalPayable),
       formatDebit(totals.totalPayable),
     ],
