@@ -608,6 +608,7 @@ function drawPageOne(pdf: JsPDF, invoice: WifiInvoice, assets: WifiVectorPdfAsse
 
 function drawPageTwo(pdf: JsPDF, invoice: WifiInvoice, assets: WifiVectorPdfAssets): void {
   const { calculations: totals, companyProfile, identifiers, source } = invoice;
+  const paymentDate = source.paymentDate || identifiers.dueDate;
   drawHeader(pdf, "POSTPAID Wi-Fi MONTHLY STATEMENT", companyProfile.legalName, assets.logoDataUrl);
 
   setTextStyle(pdf, 10, true, RED);
@@ -618,7 +619,7 @@ function drawPageTwo(pdf: JsPDF, invoice: WifiInvoice, assets: WifiVectorPdfAsse
   const paymentRows: PdfTableRow[] = [{
     cells: [
       totals.paymentReceived !== 0 ? source.paymentMethod || "Payment received" : "No payment recorded",
-      source.paymentDate ? formatBillDate(source.paymentDate) : "-",
+      paymentDate ? formatBillDate(paymentDate) : "-",
       formatDebit(totals.totalPayable),
     ],
   }];
@@ -787,6 +788,7 @@ function drawLabeledParagraph(
 
 function drawPageFour(pdf: JsPDF, invoice: WifiInvoice, assets: WifiVectorPdfAssets): void {
   const { calculations: totals, companyProfile, customer, identifiers, plan, source } = invoice;
+  const paymentDate = source.paymentDate || identifiers.dueDate;
   if (!addImageSafe(pdf, assets.detailLogoDataUrl || assets.logoDataUrl, MARGIN_X, 6, 24, 9)) {
     setTextStyle(pdf, 9, true, RED);
     pdf.text(companyProfile.legalName || "Service provider", MARGIN_X, 14, { maxWidth: 90 });
@@ -864,7 +866,7 @@ function drawPageFour(pdf: JsPDF, invoice: WifiInvoice, assets: WifiVectorPdfAss
   const paymentRows: PdfTableRow[] = [{
     cells: [
       totals.paymentReceived !== 0 ? source.paymentMethod || "Payment received" : "No payment recorded",
-      source.paymentDate ? formatBillDate(source.paymentDate) : "-",
+      paymentDate ? formatBillDate(paymentDate) : "-",
       formatDebit(totals.totalPayable),
       formatDebit(totals.totalPayable),
     ],

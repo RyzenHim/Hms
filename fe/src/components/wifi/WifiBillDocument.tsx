@@ -202,6 +202,7 @@ export function WifiBillDocument({ invoice, onPageRef, paymentQrUrl, paymentLink
   const resolvedSignatureUrl = companyProfile.assets.signatureUrl || undefined;
   const resolvedDetailLogoUrl = companyProfile.assets.detailLogoUrl || resolvedLogoUrl;
   const period = `${formatBillDate(identifiers.periodStart)} to ${formatBillDate(identifiers.periodEnd)}`;
+  const paymentDate = data.paymentDate || identifiers.dueDate;
   const paymentDescription = data.paymentInstructions || "Please contact your service provider for payment instructions.";
   const statementRow = invoice.statementRow;
   const netRental = totals.netRental;
@@ -338,7 +339,7 @@ export function WifiBillDocument({ invoice, onPageRef, paymentQrUrl, paymentLink
           <BillTable variant="payment">
             <thead><tr><th>Description</th><th>Date</th><th className={styles.money}>Amount paid</th></tr></thead>
             <tbody>
-              <tr><td>{totals.paymentReceived !== 0 ? data.paymentMethod || "Payment received" : "No payment recorded"}</td><td>{data.paymentDate ? formatBillDate(data.paymentDate) : "-"}</td><td className={styles.money}><DebitAmount amount={totals.totalPayable} /></td></tr>
+              <tr><td>{totals.paymentReceived !== 0 ? data.paymentMethod || "Payment received" : "No payment recorded"}</td><td>{paymentDate ? formatBillDate(paymentDate) : "-"}</td><td className={styles.money}><DebitAmount amount={totals.totalPayable} /></td></tr>
               <tr className={styles.totalRow}><th colSpan={2}>Total</th><td className={styles.money}><DebitAmount amount={totals.totalPayable} /></td></tr>
             </tbody>
           </BillTable>
@@ -493,7 +494,7 @@ export function WifiBillDocument({ invoice, onPageRef, paymentQrUrl, paymentLink
             <colgroup><col style={{ width: "55%" }} /><col style={{ width: "18%" }} /><col style={{ width: "14%" }} /><col style={{ width: "13%" }} /></colgroup>
             <thead><tr><th>Description</th><th>Date</th><th className={styles.money}>Amount</th><th className={styles.money}>Total (₹)</th></tr></thead>
             <tbody>
-              <tr><td>{totals.paymentReceived !== 0 ? data.paymentMethod || "Payment received" : "No payment recorded"}</td><td>{data.paymentDate ? formatBillDate(data.paymentDate) : "-"}</td><td className={styles.money}><DebitAmount amount={totals.totalPayable} /></td><td className={styles.money}><DebitAmount amount={totals.totalPayable} /></td></tr>
+              <tr><td>{totals.paymentReceived !== 0 ? data.paymentMethod || "Payment received" : "No payment recorded"}</td><td>{paymentDate ? formatBillDate(paymentDate) : "-"}</td><td className={styles.money}><DebitAmount amount={totals.totalPayable} /></td><td className={styles.money}><DebitAmount amount={totals.totalPayable} /></td></tr>
             </tbody>
           </BillTable>
         </section>
