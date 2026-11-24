@@ -5,25 +5,23 @@ import { createReferenceWifiBill } from "../src/lib/wifi-bill.ts";
 import { createWifiInvoice } from "../src/lib/wifi-invoice.ts";
 import {
   buildVectorWifiBillPdf,
-  replaceJsPdfProducer,
+  removePdfProducerAndCreationDate,
   serializeVectorWifiBillPdf,
 } from "../src/lib/wifi-vector-pdf.ts";
 
-test("producer replacement preserves byte length and ignores unrelated metadata", () => {
+test("producer and creation date removal preserves byte length and unrelated metadata", () => {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
-  const original = encoder.encode("<< /Producer (jsPDF 4.2.1) /Creator (Test) >>");
-  const replaced = replaceJsPdfProducer(original);
+  const original = encoder.encode("<< /Producer (jsPDF 4.2.1) /CreationDate (D:20261124120000+05'30') /Creator (Test) >>");
+  const removed = removePdfProducerAndCreationDate(original);
 
-  assert.equal(replaced.length, original.length);
-  assert.match(decoder.decode(replaced), /\/Producer \(HMS Billing\)/);
-  assert.match(decoder.decode(replaced), /\/Creator \(Test\)/);
+  assert.equal(removed.length, original.length);
+  assert.doesNotMatch(decoder.decode(removed), /\/Producer\b/);
+  assert.doesNotMatch(decoder.decode(removed), /\/CreationDate\b/);
+  assert.match(decoder.decode(removed), /\/Creator \(Test\)/);
 
-  const unsupported = encoder.encode("<< /Producer (some other producer) >>");
-  assert.throws(
-    () => replaceJsPdfProducer(unsupported),
-    /cannot be replaced without changing PDF byte offsets/,
-  );
+  const unrelated = encoder.encode("<< /Creator (Test) >>");
+  assert.equal(decoder.decode(removePdfProducerAndCreationDate(unrelated)), "<< /Creator (Test) >>");
 });
 
 test("vector bill contains four pages and excludes bill details from document properties", async () => {
@@ -43,12 +41,9 @@ test("vector bill contains four pages and excludes bill details from document pr
 
     const bytes = serializeVectorWifiBillPdf(pdf);
     const source = Buffer.from(bytes).toString("latin1");
-    assert.match(source, /\/Producer \(HMS Billing\)/);
-    const producerIndex = source.indexOf("/Producer (HMS Billing)");
-    const infoStart = source.lastIndexOf("<<", producerIndex);
-    const infoEnd = source.indexOf(">>", producerIndex);
-    const documentInfo = source.slice(infoStart, infoEnd + 2);
-    assert.doesNotMatch(documentInfo, /\/(?:Title|Subject|Author|Creator|Keywords)\b/);
+    assert.doesNotMatch(source, /\/Producer\b/);
+    assert.doesNotMatch(source, /\/CreationDate\b/);
+    assert.doesNotMatch(source, /\/(?:Title|Subject|Author|Creator|Keywords)\b/);
     assert.match(source, /\/Type \/Font/);
     assert.ok(bytes.length > 10_000);
   } finally {

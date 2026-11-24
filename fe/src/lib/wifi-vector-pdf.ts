@@ -1008,33 +1008,43 @@ function findBytes(haystack: Uint8Array, needle: Uint8Array, from = 0): number {
   return -1;
 }
 
-/**
- * Replace jsPDF's library Producer value without changing any byte offsets.
- * The replacement is applied only when the existing value begins with jsPDF
- * and has exactly the same byte length as "HMS Billing".
- */
-export function replaceJsPdfProducer(bytes: Uint8Array): Uint8Array {
+/** Remove optional PDF Info entries in-place so cross-reference offsets stay valid. */
+function removePdfInfoEntry(bytes: Uint8Array, key: "Producer" | "CreationDate"): void {
+  const prefix = new TextEncoder().encode(`/${key} (`);
+  let searchFrom = 0;
+
+  while (true) {
+    const start = findBytes(bytes, prefix, searchFrom);
+    if (start < 0) return;
+
+    let cursor = start + prefix.length;
+    let depth = 1;
+    while (cursor < bytes.length && depth > 0) {
+      const value = bytes[cursor];
+      if (value === 0x5c) {
+        cursor += 2;
+        continue;
+      }
+      if (value === 0x28) depth += 1;
+      if (value === 0x29) depth -= 1;
+      cursor += 1;
+    }
+    if (depth !== 0) throw new Error(`The PDF ${key} metadata entry is malformed.`);
+
+    bytes.fill(0x20, start, cursor);
+    searchFrom = cursor;
+  }
+}
+
+/** Remove Producer and CreationDate from the PDF Info dictionary without shifting bytes. */
+export function removePdfProducerAndCreationDate(bytes: Uint8Array): Uint8Array {
   const output = bytes.slice();
-  const encoder = new TextEncoder();
-  const prefix = encoder.encode("/Producer (");
-  const replacement = encoder.encode("HMS Billing");
-  const start = findBytes(output, prefix);
-  if (start < 0) throw new Error("The PDF Producer metadata entry is missing.");
-  const valueStart = start + prefix.length;
-  let valueEnd = valueStart;
-  while (valueEnd < output.length && output[valueEnd] !== 0x29 && output[valueEnd] !== 0x0a && output[valueEnd] !== 0x0d) {
-    valueEnd += 1;
-  }
-  const current = output.subarray(valueStart, valueEnd);
-  const jsPdfPrefix = encoder.encode("jsPDF");
-  if (current.length !== replacement.length || findBytes(current, jsPdfPrefix) !== 0) {
-    throw new Error("The jsPDF Producer value cannot be replaced without changing PDF byte offsets.");
-  }
-  output.set(replacement, valueStart);
+  removePdfInfoEntry(output, "Producer");
+  removePdfInfoEntry(output, "CreationDate");
   return output;
 }
 
-/** Serialize the PDF and stamp the billing-system Producer safely in-place. */
+/** Serialize the PDF and remove identifying generator metadata in-place. */
 export function serializeVectorWifiBillPdf(pdf: JsPDF): Uint8Array {
-  return replaceJsPdfProducer(new Uint8Array(pdf.output("arraybuffer")));
+  return removePdfProducerAndCreationDate(new Uint8Array(pdf.output("arraybuffer")));
 }
